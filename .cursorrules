@@ -1,0 +1,113 @@
+# Pitch Platform — Cursor AI Architectural Rules & Constraints
+
+You are a Principal Full-Stack Software Engineer building `pitch-platform`, a high-concurrency mini-football pitch booking, matchmaking (+1 open lobbies & squad challenges), tournament management, and AI concierge platform.
+
+Always reference `@PROJECT_SPEC.md` as the single source of truth for file paths, database schemas, DTO contracts, and phased verification gates.
+
+---
+
+## 1. Core Tech Stack & Version Constraints
+
+### Backend (`/backend`)
+- **Language:** Python 3.12+ (strict type hints everywhere).
+- **Framework:** FastAPI (100% `async def` endpoints and dependencies).
+- **ORM & Database Driver:** SQLAlchemy 2.0+ (`sqlalchemy.ext.asyncio`, `AsyncSession`, `create_async_engine`) with `asyncpg`.
+- **Database:** PostgreSQL 16+ with `uuid-ossp` and `btree_gist` extensions enabled.
+- **Migrations:** Alembic configured with an async migration runner (`alembic/env.py`).
+- **Validation & Settings:** Pydantic v2 (`pydantic`, `pydantic-settings`).
+- **Security:** `passlib[bcrypt]` (or `bcrypt`), `PyJWT` (15-min access tokens), and `hashlib.sha256` refresh token hashing persisted in PostgreSQL.
+- **AI Integration:** `openai` (`AsyncOpenAI` client configured with `LLM_API_KEY` and `LLM_BASE_URL` for OpenAI/Gemini compatibility).
+- **Testing:** `pytest`, `pytest-asyncio`, `httpx.AsyncClient` with `asyncio.gather` for concurrency verification.
+
+### Frontend (`/frontend`)
+- **Framework:** React 19 + TypeScript (Vite bundler).
+- **Styling:** Tailwind CSS (Mobile-first design, emerald/amber/slate palette).
+- **Server State & Caching:** TanStack Query v5 (`@tanstack/react-query`).
+- **Routing:** React Router v6/v7 (`react-router-dom`).
+- **Icons:** `lucide-react`.
+
+---
+
+## 2. Strict 4-Tier Backend Architecture
+
+Enforce a strict unidirectional dependency flow:
+`API Routers (Tier 1)` -> `Services (Tier 2)` -> `Repositories (Tier 3)` -> `Models / Database (Tier 4)`
+
+1. **Tier 1 — API Controllers (`app/api/v1/*.py`):**
+   - Handle HTTP routing, request parsing, status codes, and dependency injection (`Depends(get_current_user)`, `Depends(get_db)`).
+   - **FORBIDDEN:** Writing SQLAlchemy queries (`select`, `insert`, `session.execute`) or business logic inside route handlers.
+2. **Tier 2 — Services (`app/services/*.py`):**
+   - Own business rules, price calculations, operating-hour validations, LLM tool-calling loops, and transaction boundaries (`await self.session.commit()` / `await self.session.rollback()`).
+   - Catch database `IntegrityError` exceptions and translate them into domain exceptions from `app/core/exceptions.py`.
+   - Return strict Pydantic v2 Response DTOs.
+3. **Tier 3 — Repositories (`app/repositories/*.py`):**
+   - Own all SQLAlchemy 2.0 `select()`, `insert()`, `selectinload()`, and locking queries.
+   - Use `await self.session.flush()` when persisting entities so IDs are populated, leaving `commit()` to the Service layer.
+4. **Tier 4 — Declarative Models (`app/models/*.py`):**
+   - Pure SQLAlchemy 2.0 `DeclarativeBase` entities and Python `enum.Enum` classes.
+
+---
+
+## 3. SQLAlchemy 2.0 & PostgreSQL Concurrency Rules (CRITICAL)
+
+- **SQLAlchemy 2.0 Syntax Only:**
+  - ALWAYS use `Mapped[T]` and `mapped_column(...)`.
+  - **FORBIDDEN:** Legacy SQLAlchemy 1.x `Column(...)` syntax or `session.query(...)`.
+  - Always use explicit eager loading (`selectinload` or `joinedload`) for relationships accessed in async contexts to prevent `MissingGreenlet` / lazy-loading errors.
+- **Hardware-Level Double-Booking Prevention:**
+  - Never rely solely on application-level `SELECT` checks before inserting a booking.
+  - The `bookings` table MUST enforce the PostgreSQL `btree_gist` exclusion constraint:
+    ```sql
+    CONSTRAINT excl_bookings_no_overlap EXCLUDE USING gist (
+        pitch_id WITH =,
+        tstzrange(start_time, end_time, '[)') WITH &&
+    ) WHERE (status != 'CANCELLED')
+    ```
+  - Always use half-open intervals `'[)'` so back-to-back bookings (e.g., `18:00-19:00` and `19:00-20:00`) do not conflict.
+  - In `BookingService.create_booking`, catch `sqlalchemy.exc.IntegrityError` and inspect for `excl_bookings_no_overlap` or SQLSTATE `23P01` to raise `SlotAlreadyBookedError` (HTTP 409).
+- **Match Lobby Capacity Locking:**
+  - When a player joins a match (`MatchService.join_match`), ALWAYS acquire a row-level write lock on the `Match` row first using `.with_for_update()` (`SELECT ... FOR UPDATE`).
+  - Verify `match.status == MatchStatus.OPEN` and `len(confirmed_players) < match.target_players` while holding the lock, and transition `match.status = MatchStatus.FULL` atomically when the final spot is taken.
+- **Timestamps & Currency:**
+  - All timestamps MUST be timezone-aware (`TIMESTAMPTZ` in PostgreSQL, `datetime` with `timezone.utc` in Python).
+  - All monetary values (`hourly_rate`, `total_price`, `entry_fee`) MUST use `Numeric(10, 2)` / `Decimal` in backend logic—never `float`.
+
+---
+
+## 4. Pydantic v2 Conventions
+
+- Always use Pydantic v2 syntax:
+  - Use `model_config = ConfigDict(from_attributes=True)` instead of `class Config: orm_mode = True`.
+  - Use `@model_validator(mode="after")` and `@field_validator(...)` instead of `@validator` or `@root_validator`.
+  - Use `.model_validate(obj)` and `.model_dump()` instead of `.from_orm(obj)` and `.dict()`.
+
+---
+
+## 5. AI Assistant Tool-Calling Rules
+
+- The AI Concierge (`app/services/ai_service.py`) must never hallucinate pitch availability or open lobbies.
+- Always pass `AI_TOOLS_SCHEMA` (`search_pitches`, `find_open_lobbies`) to the LLM completion call.
+- When `assistant_msg.tool_calls` is present, execute the corresponding repository queries against the live `AsyncSession`, append the `role: "tool"` output messages, and record every call in `invoked_tools: List[ToolCallPayload]` so the React frontend can render interactive action cards.
+
+---
+
+## 6. Frontend & Mobile-First UI Rules
+
+- **Mobile-First Viewport:** Design primarily for mobile screens (`390x844` viewport, bottom navigation bar, slide-up drawers, touch-friendly tap targets with `active:scale-95`).
+- **Visual Slot Matrix Semantics (`TimeSlotSelector.tsx`):**
+  - `AVAILABLE` -> Emerald Green (`bg-emerald-50`, selectable for booking).
+  - `OPEN_LOBBY` -> Amber/Orange (`bg-amber-50`, displays `+X needed` badge and opens/navigates to the match lobby on tap).
+  - `OCCUPIED` -> Slate Grey (`bg-slate-100`, disabled with lock icon).
+- **Data Fetching:**
+  - All API calls must go through `src/api/client.ts` (with automatic JWT `Authorization: Bearer <token>` header injection and `/v1/auth/refresh` retry logic).
+  - Use TanStack Query hooks (`useQuery`, `useMutation`) and always invalidate `['pitch-availability', pitchId, targetDate]` after creating a booking.
+- **Strict TypeScript:**
+  - Keep `frontend/src/types/api.ts` strictly synchronized with the backend Pydantic v2 schemas. Avoid `any` wherever possible.
+
+---
+
+## 7. Phased Execution Discipline
+
+- Follow **Section G** of `PROJECT_SPEC.md` phase by phase (Phase 1 -> Phase 7).
+- Do not generate files for future phases unless explicitly requested by the user.
+- Ensure every file generated is complete, runnable, and contains zero `TODO` or placeholder comments that break execution.

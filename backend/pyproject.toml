@@ -1,0 +1,65 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "pitch-platform-backend"
+version = "0.1.0"
+description = "High-concurrency mini-football pitch booking and matchmaking backend"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "asyncpg>=0.29.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "alembic>=1.13.0",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt>=4.0.0",
+    "pyjwt>=2.8.0",
+    "openai>=1.30.0",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+    "ruff>=0.4.0",
+]
+
+[tool.poetry]
+name = "pitch-platform-backend"
+version = "0.1.0"
+description = "High-concurrency mini-football pitch booking and matchmaking backend"
+authors = ["Pitch Platform Team"]
+readme = "README.md"
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<4.0"
+fastapi = ">=0.111.0"
+uvicorn = {extras = ["standard"], version = ">=0.30.0"}
+sqlalchemy = {extras = ["asyncio"], version = ">=2.0.30"}
+asyncpg = ">=0.29.0"
+pydantic = ">=2.7.0"
+pydantic-settings = ">=2.2.0"
+alembic = ">=1.13.0"
+passlib = {extras = ["bcrypt"], version = ">=1.7.4"}
+bcrypt = ">=4.0.0"
+pyjwt = ">=2.8.0"
+openai = ">=1.30.0"
+python-multipart = ">=0.0.9"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0.0"
+pytest-asyncio = ">=0.23.0"
+httpx = ">=0.27.0"
+ruff = ">=0.4.0"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
