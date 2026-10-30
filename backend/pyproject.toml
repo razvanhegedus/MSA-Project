@@ -17,8 +17,9 @@ dependencies = [
     "pydantic-settings>=2.2.0",
     "alembic>=1.13.0",
     "passlib[bcrypt]>=1.7.4",
-    "bcrypt>=4.0.0",
+    "bcrypt>=4.0.0,<4.1.0",
     "pyjwt>=2.8.0",
+    "email-validator>=2.0.0",
     "openai>=1.30.0",
     "python-multipart>=0.0.9",
 ]
@@ -49,8 +50,9 @@ pydantic = ">=2.7.0"
 pydantic-settings = ">=2.2.0"
 alembic = ">=1.13.0"
 passlib = {extras = ["bcrypt"], version = ">=1.7.4"}
-bcrypt = ">=4.0.0"
+bcrypt = ">=4.0.0,<4.1.0"
 pyjwt = ">=2.8.0"
+email-validator = ">=2.0.0"
 openai = ">=1.30.0"
 python-multipart = ">=0.0.9"
 

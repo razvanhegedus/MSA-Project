@@ -66,7 +66,7 @@ class Venue(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ(timezone=True), server_default=func.now(), nullable=False)
 
     owner: Mapped["User"] = relationship(back_populates="venues")
-    pitches: Mapped[List["Pitch"]] = relationship(back_populates="venue", cascade="all, delete-orphan")
+    pitches: Mapped[List["Pitch"]] = relationship(back_populates="venue", cascade="all, delete-orphan", lazy="selectin")
 
     __table_args__ = (
         CheckConstraint("opening_hour >= 0 AND opening_hour <= 23", name="ck_venue_opening_hour"),
