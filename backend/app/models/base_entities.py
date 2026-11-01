@@ -154,7 +154,7 @@ class Tournament(Base):
     )
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ(timezone=True), server_default=func.now(), nullable=False)
 
-    teams: Mapped[List["TournamentTeam"]] = relationship(back_populates="tournament", cascade="all, delete-orphan")
+    teams: Mapped[List["TournamentTeam"]] = relationship(back_populates="tournament", cascade="all, delete-orphan", lazy="selectin")
     matches: Mapped[List["Match"]] = relationship(back_populates="tournament")
 
     __table_args__ = (

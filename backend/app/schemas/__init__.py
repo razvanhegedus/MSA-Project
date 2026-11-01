@@ -23,6 +23,19 @@ from app.schemas.booking import (
     BookingCreateRequest,
     BookingResponse,
 )
+from app.schemas.match import (
+    MatchCreateRequest,
+    MatchFilterQuery,
+    MatchJoinRequest,
+    MatchParticipantResponse,
+    MatchDetailResponse,
+)
+from app.schemas.tournament import (
+    TournamentCreateRequest,
+    TournamentTeamRegisterRequest,
+    TournamentTeamResponse,
+    TournamentResponse,
+)
 
 __all__ = [
     "UserRegisterRequest",
@@ -44,4 +57,13 @@ __all__ = [
     "TimeSlotResponse",
     "BookingCreateRequest",
     "BookingResponse",
+    "MatchCreateRequest",
+    "MatchFilterQuery",
+    "MatchJoinRequest",
+    "MatchParticipantResponse",
+    "MatchDetailResponse",
+    "TournamentCreateRequest",
+    "TournamentTeamRegisterRequest",
+    "TournamentTeamResponse",
+    "TournamentResponse",
 ]
