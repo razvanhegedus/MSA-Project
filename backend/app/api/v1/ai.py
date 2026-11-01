@@ -29,3 +29,4 @@ async def chat_with_concierge(
     """
     service = AIConciergeService(session)
     return await service.handle_chat(payload)
+

@@ -111,3 +111,4 @@ class AIConciergeService:
         )
         reply_text = final_response.choices[0].message.content or ""
         return AIChatResponse(reply=reply_text, invoked_tools=invoked_tools)
+
