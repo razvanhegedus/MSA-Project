@@ -31,10 +31,17 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # LLM Settings (OpenAI / Gemini compatible)
+    # LLM Settings (OpenAI / Gemini OpenAI-compatible endpoint)
+    # Set GEMINI_API_KEY *or* LLM_API_KEY — GEMINI_API_KEY takes precedence when present.
+    GEMINI_API_KEY: str = ""
     LLM_API_KEY: str = "dummy_llm_api_key"
-    LLM_BASE_URL: str = "https://api.openai.com/v1"
-    LLM_MODEL_NAME: str = "gpt-4o"
+    LLM_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    LLM_MODEL_NAME: str = "gemini-2.5-flash"
+
+    @property
+    def effective_llm_api_key(self) -> str:
+        """Return GEMINI_API_KEY when set, otherwise fall back to LLM_API_KEY."""
+        return self.GEMINI_API_KEY if self.GEMINI_API_KEY else self.LLM_API_KEY
 
     # CORS Settings
     CORS_ORIGINS: Union[str, List[str]] = ["http://localhost:5173", "http://localhost:3000"]

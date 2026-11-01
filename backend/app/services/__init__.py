@@ -3,6 +3,7 @@ from app.services.venue_service import VenueService
 from app.services.booking_service import BookingService
 from app.services.match_service import MatchService
 from app.services.tournament_service import TournamentService
+from app.services.ai_service import AIService
 
 __all__ = [
     "AuthService",
@@ -11,4 +12,5 @@ __all__ = [
     "BookingService",
     "MatchService",
     "TournamentService",
+    "AIService",
 ]

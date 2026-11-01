@@ -36,6 +36,12 @@ from app.schemas.tournament import (
     TournamentTeamResponse,
     TournamentResponse,
 )
+from app.schemas.ai import (
+    ChatMessage,
+    AIChatRequest,
+    AIChatResponse,
+    ToolCallPayload,
+)
 
 __all__ = [
     "UserRegisterRequest",
@@ -66,4 +72,8 @@ __all__ = [
     "TournamentTeamRegisterRequest",
     "TournamentTeamResponse",
     "TournamentResponse",
+    "ChatMessage",
+    "AIChatRequest",
+    "AIChatResponse",
+    "ToolCallPayload",
 ]
