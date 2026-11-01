@@ -5,7 +5,7 @@ from app.api.v1.venues import router as venues_router
 from app.api.v1.bookings import router as bookings_router
 from app.api.v1.matches import router as matches_router
 from app.api.v1.tournaments import router as tournaments_router
-from app.api.v1.ai_assistant import router as ai_router
+from app.api.v1.ai import router as ai_router
 
 api_v1_router = APIRouter()
 

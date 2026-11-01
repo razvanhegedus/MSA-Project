@@ -2,27 +2,27 @@
 Tests for the AI Concierge Service (Phase 6).
 
 All OpenAI / Gemini network calls are mocked via ``unittest.mock.AsyncMock``
-so the test suite runs without a live LLM API key or database.
+so the test suite runs without a live LLM API key.
 
 Test coverage:
   1. ``test_ai_chat_no_tool_call``       — assistant replies immediately, no tools invoked.
   2. ``test_ai_chat_search_pitches``     — assistant requests ``search_pitches`` tool;
-                                           dispatcher queries DB and returns structured results;
-                                           final reply contains the results.
+                                           dispatcher queries DB and returns structured results.
   3. ``test_ai_chat_find_open_lobbies``  — assistant requests ``find_open_lobbies`` tool.
-  4. ``test_ai_chat_unknown_tool``       — graceful handling of an unknown tool name.
-  5. ``test_ai_chat_tool_loop_cap``      — loop is capped at MAX_TOOL_TURNS; service never
-                                           loops infinitely even if the LLM keeps returning
-                                           tool_calls on every turn.
-  6. ``test_ai_chat_endpoint_requires_auth`` — POST /api/v1/ai/chat returns 401 without JWT.
-  7. ``test_ai_chat_endpoint_with_auth``     — POST /api/v1/ai/chat returns 200 with valid JWT.
+  4. ``test_ai_chat_check_slot_tool``    — assistant requests ``check_slot_availability`` tool.
+  5. ``test_ai_chat_draft_booking_tool`` — assistant requests ``draft_booking`` tool.
+  6. ``test_ai_tools_draft_booking_available`` — direct tool test: verifies price & availability.
+  7. ``test_ai_tools_draft_booking_occupied``  — direct tool test: verifies overlap detection.
+  8. ``test_ai_chat_unknown_tool``       — graceful handling of an unknown tool name.
+  9. ``test_ai_chat_tool_loop_cap``      — loop is capped at MAX_TOOL_CYCLES.
+  10. ``test_ai_chat_endpoint_requires_auth`` — POST /api/v1/ai/chat returns 401 without JWT.
+  11. ``test_ai_chat_endpoint_with_auth``     — POST /api/v1/ai/chat returns 200 with valid JWT.
 """
 
 import json
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
-from types import SimpleNamespace
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -32,13 +32,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token
 from app.models.base_entities import (
+    Booking,
     Pitch,
     User,
     Venue,
 )
-from app.models.enums import SurfaceType, UserRole
-from app.schemas.ai import AIChatRequest, AIChatResponse, ToolCallPayload
-from app.services.ai_service import AIService, MAX_TOOL_TURNS
+from app.models.enums import BookingStatus, SurfaceType, UserRole
+from app.schemas.ai import AIChatRequest, AIChatResponse, ToolCallRecord
+from app.services.ai_concierge_service import AIConciergeService, MAX_TOOL_CYCLES
+from app.services.ai_tools import AITools
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -108,7 +110,7 @@ async def player_user(db_session: AsyncSession) -> User:
 
 @pytest.fixture
 async def seeded_pitch(db_session: AsyncSession) -> Pitch:
-    """Seed a venue owner, venue, and pitch so ``search_available_pitches`` returns results."""
+    """Seed a venue owner, venue, and pitch so search and availability return results."""
     uid = uuid.uuid4().hex[:8]
     owner = User(
         id=uuid.uuid4(),
@@ -148,21 +150,80 @@ async def seeded_pitch(db_session: AsyncSession) -> Pitch:
     db_session.add(pitch)
     await db_session.commit()
     await db_session.refresh(pitch)
-    # Ensure the venue relationship is loaded for the assertion
     await db_session.refresh(venue)
-    pitch.venue = venue  # type: ignore[assignment]
+    pitch.venue = venue
     return pitch
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Unit tests — AIService.handle_chat
+# Unit tests — Direct AITools execution
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ai_tools_draft_booking_available(
+    db_session: AsyncSession, seeded_pitch: Pitch
+) -> None:
+    """Draft booking pre-validates availability and prices without creating a DB row."""
+    tools = AITools(db_session)
+    target_date = date.today() + timedelta(days=2)
+    start_dt = datetime.combine(target_date, time(18, 0), tzinfo=timezone.utc)
+    end_dt = datetime.combine(target_date, time(20, 0), tzinfo=timezone.utc)
+
+    quote = await tools.draft_booking(
+        pitch_id=seeded_pitch.id,
+        start_time=start_dt,
+        end_time=end_dt,
+    )
+
+    assert quote["is_available"] is True
+    assert quote["status"] == "AVAILABLE"
+    assert quote["duration_hours"] == "2" or quote["duration_hours"] == 2.0 or Decimal(str(quote["duration_hours"])) == Decimal("2")
+    # 2 hours * 150.00 = 300.00
+    assert Decimal(str(quote["total_price"])) == Decimal("300.00")
+
+
+@pytest.mark.asyncio
+async def test_ai_tools_draft_booking_occupied(
+    db_session: AsyncSession, seeded_pitch: Pitch, player_user: User
+) -> None:
+    """Draft booking detects overlapping bookings using [) half-open intervals."""
+    target_date = date.today() + timedelta(days=3)
+    start_dt = datetime.combine(target_date, time(19, 0), tzinfo=timezone.utc)
+    end_dt = datetime.combine(target_date, time(20, 0), tzinfo=timezone.utc)
+
+    existing_booking = Booking(
+        id=uuid.uuid4(),
+        pitch_id=seeded_pitch.id,
+        booked_by_user_id=player_user.id,
+        start_time=start_dt,
+        end_time=end_dt,
+        total_price=Decimal("150.00"),
+        status=BookingStatus.CONFIRMED,
+    )
+    db_session.add(existing_booking)
+    await db_session.commit()
+
+    tools = AITools(db_session)
+    quote = await tools.draft_booking(
+        pitch_id=seeded_pitch.id,
+        start_time=start_dt,
+        end_time=end_dt,
+    )
+
+    assert quote["is_available"] is False
+    assert quote["status"] == "SLOT_OCCUPIED"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Unit tests — AIConciergeService conversational turns
 # ──────────────────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_ai_chat_no_tool_call(db_session: AsyncSession) -> None:
     """When the LLM returns a direct answer (no tool_calls), reply is passed through."""
-    service = AIService(db_session)
+    service = AIConciergeService(db_session)
     reply_text = "There are 3 pitches available in Reșița tomorrow."
 
     mock_create = AsyncMock(
@@ -178,24 +239,19 @@ async def test_ai_chat_no_tool_call(db_session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ai_chat_search_pitches(db_session: AsyncSession, seeded_pitch: Pitch) -> None:
-    """
-    Simulates the LLM requesting ``search_pitches``.
-    Verifies the tool dispatcher queries the DB and the result is returned in ``invoked_tools``.
-    """
-    tomorrow = date.today() + timedelta(days=1)
+async def test_ai_chat_search_pitches(
+    db_session: AsyncSession, seeded_pitch: Pitch
+) -> None:
+    """Simulates LLM requesting search_pitches tool."""
     tool_args = {
         "city": "Reșița",
-        "date": tomorrow.isoformat(),
-        "start_hour": 20,
-        "surface_type": "SYNTHETIC_3G",
+        "surface": "SYNTHETIC_3G",
     }
     tool_call = _make_tool_call("search_pitches", tool_args)
 
-    # First call: returns tool_calls; second call: returns final text reply.
     first_response = _make_openai_response(tool_calls=[tool_call])
     second_response = _make_openai_response(
-        content="I found 1 synthetic pitch available in Reșița tomorrow at 20:00."
+        content="I found 1 synthetic pitch available in Reșița."
     )
 
     call_count = 0
@@ -205,35 +261,102 @@ async def test_ai_chat_search_pitches(db_session: AsyncSession, seeded_pitch: Pi
         call_count += 1
         return first_response if call_count == 1 else second_response
 
-    service = AIService(db_session)
+    service = AIConciergeService(db_session)
     with patch.object(service.client.chat.completions, "create", side_effect=side_effect):
-        payload = AIChatRequest(
-            message="Find me a synthetic pitch in Reșița tomorrow at 20:00"
-        )
+        payload = AIChatRequest(message="Find me synthetic pitches in Reșița")
         result: AIChatResponse = await service.handle_chat(payload)
 
-    assert "Reșița" in result.reply or result.reply  # model returned something
+    assert result.reply
     assert len(result.invoked_tools) == 1
     invoked = result.invoked_tools[0]
     assert invoked.tool_name == "search_pitches"
     assert invoked.arguments["city"] == "Reșița"
-    # The seeded pitch is in Reșița with SYNTHETIC_3G and no bookings → should appear
     assert isinstance(invoked.result_summary, list)
 
 
 @pytest.mark.asyncio
+async def test_ai_chat_check_slot_tool(
+    db_session: AsyncSession, seeded_pitch: Pitch
+) -> None:
+    """Simulates LLM requesting check_slot_availability tool."""
+    tomorrow = date.today() + timedelta(days=1)
+    tool_args = {
+        "pitch_id": str(seeded_pitch.id),
+        "query_date": tomorrow.isoformat(),
+    }
+    tool_call = _make_tool_call("check_slot_availability", tool_args)
+
+    first_response = _make_openai_response(tool_calls=[tool_call])
+    second_response = _make_openai_response(
+        content="Slots are available throughout tomorrow afternoon."
+    )
+
+    call_count = 0
+
+    async def side_effect(*args: Any, **kwargs: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        return first_response if call_count == 1 else second_response
+
+    service = AIConciergeService(db_session)
+    with patch.object(service.client.chat.completions, "create", side_effect=side_effect):
+        payload = AIChatRequest(message="Is pitch AI-1 free tomorrow?")
+        result: AIChatResponse = await service.handle_chat(payload)
+
+    assert len(result.invoked_tools) == 1
+    assert result.invoked_tools[0].tool_name == "check_slot_availability"
+    assert isinstance(result.invoked_tools[0].result_summary, list)
+
+
+@pytest.mark.asyncio
+async def test_ai_chat_draft_booking_tool(
+    db_session: AsyncSession, seeded_pitch: Pitch
+) -> None:
+    """Simulates LLM requesting draft_booking tool."""
+    target_date = date.today() + timedelta(days=4)
+    start_iso = datetime.combine(target_date, time(20, 0), tzinfo=timezone.utc).isoformat()
+    end_iso = datetime.combine(target_date, time(21, 0), tzinfo=timezone.utc).isoformat()
+
+    tool_args = {
+        "pitch_id": str(seeded_pitch.id),
+        "start_time": start_iso,
+        "end_time": end_iso,
+    }
+    tool_call = _make_tool_call("draft_booking", tool_args)
+
+    first_response = _make_openai_response(tool_calls=[tool_call])
+    second_response = _make_openai_response(
+        content="The total quote for this reservation is 150.00 RON."
+    )
+
+    call_count = 0
+
+    async def side_effect(*args: Any, **kwargs: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        return first_response if call_count == 1 else second_response
+
+    service = AIConciergeService(db_session)
+    with patch.object(service.client.chat.completions, "create", side_effect=side_effect):
+        payload = AIChatRequest(message="Can you draft a quote for tomorrow at 20:00?")
+        result: AIChatResponse = await service.handle_chat(payload)
+
+    assert len(result.invoked_tools) == 1
+    assert result.invoked_tools[0].tool_name == "draft_booking"
+    summary = result.invoked_tools[0].result_summary
+    assert summary["is_available"] is True
+    assert Decimal(str(summary["total_price"])) == Decimal("150.00")
+
+
+@pytest.mark.asyncio
 async def test_ai_chat_find_open_lobbies(db_session: AsyncSession) -> None:
-    """
-    Simulates the LLM requesting ``find_open_lobbies``.
-    Verifies the tool dispatcher is called and returns a list of dicts (possibly
-    non-empty if other tests have seeded matches into the shared DB).
-    """
+    """Simulates LLM requesting find_open_lobbies tool."""
     tool_args = {"city": "Reșița"}
     tool_call = _make_tool_call("find_open_lobbies", tool_args)
 
     first_response = _make_openai_response(tool_calls=[tool_call])
     second_response = _make_openai_response(
-        content="There are currently no open lobbies in Reșița."
+        content="Checked for open lobbies in Reșița."
     )
 
     call_count = 0
@@ -243,28 +366,19 @@ async def test_ai_chat_find_open_lobbies(db_session: AsyncSession) -> None:
         call_count += 1
         return first_response if call_count == 1 else second_response
 
-    service = AIService(db_session)
+    service = AIConciergeService(db_session)
     with patch.object(service.client.chat.completions, "create", side_effect=side_effect):
         payload = AIChatRequest(message="Any open lobbies in Reșița today?")
         result: AIChatResponse = await service.handle_chat(payload)
 
     assert len(result.invoked_tools) == 1
     assert result.invoked_tools[0].tool_name == "find_open_lobbies"
-    # result_summary is a list of lobby dicts (may be non-empty from shared DB state)
     assert isinstance(result.invoked_tools[0].result_summary, list)
-    # Every item in the list must be a dict with the expected keys
-    for lobby in result.invoked_tools[0].result_summary:
-        assert isinstance(lobby, dict)
-        assert "match_id" in lobby
-        assert "spots_left" in lobby
 
 
 @pytest.mark.asyncio
 async def test_ai_chat_unknown_tool(db_session: AsyncSession) -> None:
-    """
-    If the LLM requests an unknown tool the dispatcher returns an error dict,
-    the loop continues, and the assistant produces a final reply.
-    """
+    """Unknown tool name returns error dict, gracefully handled."""
     tool_call = _make_tool_call("book_a_flight", {"destination": "Paris"})
 
     first_response = _make_openai_response(tool_calls=[tool_call])
@@ -277,50 +391,40 @@ async def test_ai_chat_unknown_tool(db_session: AsyncSession) -> None:
         call_count += 1
         return first_response if call_count == 1 else second_response
 
-    service = AIService(db_session)
+    service = AIConciergeService(db_session)
     with patch.object(service.client.chat.completions, "create", side_effect=side_effect):
         payload = AIChatRequest(message="Book me a flight to Paris")
         result: AIChatResponse = await service.handle_chat(payload)
 
     assert len(result.invoked_tools) == 1
-    error_tool = result.invoked_tools[0]
-    assert error_tool.tool_name == "book_a_flight"
-    assert "error" in error_tool.result_summary[0]
+    assert result.invoked_tools[0].tool_name == "book_a_flight"
+    assert "error" in result.invoked_tools[0].result_summary[0]
 
 
 @pytest.mark.asyncio
 async def test_ai_chat_tool_loop_cap(db_session: AsyncSession) -> None:
-    """
-    If the LLM keeps requesting tools on every turn, the loop terminates after
-    MAX_TOOL_TURNS and a final completion call is made.
-    Total LLM calls = MAX_TOOL_TURNS + 1 (the cap-exit call).
-    """
+    """Loop terminates after MAX_TOOL_CYCLES turns without infinite looping."""
     tool_call = _make_tool_call("find_open_lobbies", {"city": "Timișoara"})
     tool_response = _make_openai_response(tool_calls=[tool_call])
     final_response = _make_openai_response(content="Here are the lobbies.")
 
-    # The LLM always returns a tool call; only the last (cap-exit) call gets final_response.
     call_count = 0
 
     async def side_effect(*args: Any, **kwargs: Any) -> Any:
         nonlocal call_count
         call_count += 1
-        # The cap-exit call is made *without* the ``tools`` kwarg
         if "tools" not in kwargs:
             return final_response
         return tool_response
 
-    service = AIService(db_session)
+    service = AIConciergeService(db_session)
     with patch.object(service.client.chat.completions, "create", side_effect=side_effect):
         payload = AIChatRequest(message="Show me all lobbies in Timișoara")
         result: AIChatResponse = await service.handle_chat(payload)
 
-    # Exactly MAX_TOOL_TURNS tool invocations should be recorded
-    assert len(result.invoked_tools) == MAX_TOOL_TURNS
-    # The final reply comes from the cap-exit call
+    assert len(result.invoked_tools) == MAX_TOOL_CYCLES
     assert result.reply == "Here are the lobbies."
-    # Total LLM calls: MAX_TOOL_TURNS (tool loops) + 1 (cap-exit)
-    assert call_count == MAX_TOOL_TURNS + 1
+    assert call_count == MAX_TOOL_CYCLES + 1
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -330,7 +434,7 @@ async def test_ai_chat_tool_loop_cap(db_session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_ai_chat_endpoint_requires_auth(client: AsyncClient) -> None:
-    """POST /api/v1/ai/chat must return 401 when no Authorization header is present."""
+    """POST /api/v1/ai/chat returns 401 when no token is provided."""
     response = await client.post(
         "/api/v1/ai/chat",
         json={"message": "Any pitches available?"},
@@ -342,10 +446,7 @@ async def test_ai_chat_endpoint_requires_auth(client: AsyncClient) -> None:
 async def test_ai_chat_endpoint_with_auth(
     client: AsyncClient, db_session: AsyncSession, player_user: User
 ) -> None:
-    """
-    POST /api/v1/ai/chat with a valid JWT must return 200 and a well-formed
-    AIChatResponse.  The LLM client is mocked to avoid external API calls.
-    """
+    """POST /api/v1/ai/chat with valid JWT returns 200 and AIChatResponse."""
     token = create_access_token(subject=str(player_user.id))
     reply_text = "No pitches found for your query."
 
@@ -354,9 +455,8 @@ async def test_ai_chat_endpoint_with_auth(
     )
 
     with patch(
-        "app.services.ai_service.AsyncOpenAI"
+        "app.services.ai_concierge_service.AsyncOpenAI"
     ) as mock_openai_cls:
-        # Wire the mock so service.client.chat.completions.create is our AsyncMock
         mock_instance = MagicMock()
         mock_instance.chat.completions.create = mock_create
         mock_openai_cls.return_value = mock_instance

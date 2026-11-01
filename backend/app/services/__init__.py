@@ -4,6 +4,8 @@ from app.services.booking_service import BookingService
 from app.services.match_service import MatchService
 from app.services.tournament_service import TournamentService
 from app.services.ai_service import AIService
+from app.services.ai_concierge_service import AIConciergeService
+from app.services.ai_tools import AITools, AI_TOOLS_DEFINITIONS
 
 __all__ = [
     "AuthService",
@@ -13,4 +15,7 @@ __all__ = [
     "MatchService",
     "TournamentService",
     "AIService",
+    "AIConciergeService",
+    "AITools",
+    "AI_TOOLS_DEFINITIONS",
 ]

@@ -40,7 +40,13 @@ from app.schemas.ai import (
     ChatMessage,
     AIChatRequest,
     AIChatResponse,
+    ToolCallRecord,
     ToolCallPayload,
+    SearchPitchesArgs,
+    CheckSlotAvailabilityArgs,
+    DraftBookingArgs,
+    DraftBookingQuote,
+    FindOpenLobbiesArgs,
 )
 
 __all__ = [
@@ -75,5 +81,11 @@ __all__ = [
     "ChatMessage",
     "AIChatRequest",
     "AIChatResponse",
+    "ToolCallRecord",
     "ToolCallPayload",
+    "SearchPitchesArgs",
+    "CheckSlotAvailabilityArgs",
+    "DraftBookingArgs",
+    "DraftBookingQuote",
+    "FindOpenLobbiesArgs",
 ]
