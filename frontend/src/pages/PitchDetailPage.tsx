@@ -32,7 +32,7 @@ import { useAuth } from '../context/AuthContext';
 const GALLERY_IMAGES = [
   'https://images.unsplash.com/photo-1529900748604-07564a03e7a6?auto=format&fit=crop&w=1200&q=80',
   'https://images.unsplash.com/photo-1575361204480-aadea25e6e68?auto=format&fit=crop&w=800&q=80',
-  'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=800&q=80',
+  'https://images.unsplash.com/photo-1551958219-acbc608c6377?auto=format&fit=crop&w=800&q=80',
   'https://images.unsplash.com/photo-1518091043644-c1d4457512c6?auto=format&fit=crop&w=800&q=80',
 ];
 
@@ -48,6 +48,7 @@ const PitchDetailPage: React.FC = () => {
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [drawerSlot, setDrawerSlot] = useState<TimeSlot | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
 
   // Desktop Checkout Card Form State
@@ -136,13 +137,19 @@ const PitchDetailPage: React.FC = () => {
 
   const handleConfirmJoin = (payload: JoinMatchPayload) => {
     if (!joiningMatchId) return;
+    setErrorMessage(null);
     joinMatch.mutate(payload, {
       onSuccess: () => {
         setJoiningMatchId(null);
         setSuccessMessage('🎉 You have successfully joined the match squad!');
         setTimeout(() => setSuccessMessage(null), 4000);
       },
-      onError: () => setJoiningMatchId(null),
+      onError: (err: any) => {
+        setJoiningMatchId(null);
+        const msg =
+          err?.response?.data?.detail || err?.message || 'Failed to join match lobby.';
+        setErrorMessage(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      },
     });
   };
 
@@ -206,6 +213,20 @@ const PitchDetailPage: React.FC = () => {
         </div>
       )}
 
+      {/* Error Notification Alert */}
+      {errorMessage && (
+        <div className="flex items-center gap-3 bg-red-50 border border-red-300 rounded-2xl p-4 text-sm font-semibold text-red-900 shadow-sm animate-in fade-in slide-in-from-top-2">
+          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+          <span>{errorMessage}</span>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="ml-auto text-red-600 hover:text-red-800"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* ─── 12-Column Desktop Adaptive Grid ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* ─── LEFT COLUMN: Pitch Info, Gallery, Facilities, Date, Slots, Lobbies ─── */}
@@ -213,8 +234,8 @@ const PitchDetailPage: React.FC = () => {
           {/* Pitch Hero Image Gallery */}
           <div className="space-y-3">
             {/* Desktop 1 Large + 3 Thumbnails / Mobile Single Banner */}
-            <div className="hidden sm:grid grid-cols-12 gap-3 h-80">
-              <div className="col-span-8 h-full rounded-2xl overflow-hidden relative shadow-sm group">
+            <div className="hidden sm:grid grid-cols-12 gap-3 h-64 md:h-72 overflow-hidden rounded-2xl">
+              <div className="col-span-8 h-full min-h-0 rounded-2xl overflow-hidden relative shadow-sm group">
                 <img
                   src={GALLERY_IMAGES[activeGalleryIndex]}
                   alt={pitch.name}
@@ -233,7 +254,7 @@ const PitchDetailPage: React.FC = () => {
               </div>
 
               {/* 3 Grid Thumbnails on Desktop */}
-              <div className="col-span-4 grid grid-rows-3 gap-3 h-full">
+              <div className="col-span-4 grid grid-rows-3 gap-2.5 h-full min-h-0 overflow-hidden">
                 {GALLERY_IMAGES.slice(1, 4).map((img, idx) => {
                   const actualIdx = idx + 1;
                   const isActive = activeGalleryIndex === actualIdx;
@@ -242,7 +263,7 @@ const PitchDetailPage: React.FC = () => {
                       key={img}
                       type="button"
                       onClick={() => setActiveGalleryIndex(actualIdx)}
-                      className={`relative rounded-xl overflow-hidden border-2 transition-all group ${
+                      className={`h-full w-full min-h-0 relative rounded-xl overflow-hidden border-2 transition-all group ${
                         isActive
                           ? 'border-emerald-500 shadow-md ring-2 ring-emerald-500/30'
                           : 'border-transparent opacity-75 hover:opacity-100'

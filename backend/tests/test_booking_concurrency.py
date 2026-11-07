@@ -373,3 +373,11 @@ async def test_venues_and_bookings_api_flow(client: AsyncClient, setup_10_player
     assert me_resp.status_code == 200
     my_bookings = me_resp.json()
     assert any(b["id"] == valid_booking_resp.json()["id"] for b in my_bookings)
+
+    # Verify /bookings/my alias returns the exact same list
+    my_resp = await client.get(
+        "/api/v1/bookings/my",
+        headers={"Authorization": f"Bearer {tokens[1]}"},
+    )
+    assert my_resp.status_code == 200
+    assert my_resp.json() == my_bookings

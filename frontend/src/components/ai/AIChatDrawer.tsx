@@ -59,6 +59,16 @@ const AIChatDrawer: React.FC = () => {
             { role: 'assistant', content: data.reply, tools: data.invoked_tools },
           ]);
         },
+        onError: () => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'assistant',
+              content:
+                'I am currently having trouble connecting to the concierge service. Please feel free to browse pitches and matches directly in the app!',
+            },
+          ]);
+        },
       }
     );
   };
@@ -67,8 +77,12 @@ const AIChatDrawer: React.FC = () => {
     setInput(prompt);
   };
 
-  const getSummaryItems = (tool: ToolCallPayload) => {
-    return tool.result_summary;
+  const getSummaryItems = (tool: ToolCallPayload): Record<string, unknown>[] => {
+    if (!tool.result_summary) return [];
+    const summaryList = Array.isArray(tool.result_summary)
+      ? tool.result_summary
+      : [tool.result_summary];
+    return summaryList as Record<string, unknown>[];
   };
 
   return (

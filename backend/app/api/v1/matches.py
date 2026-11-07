@@ -26,7 +26,7 @@ router = APIRouter()
 )
 async def list_matches(
     city: Optional[str] = Query(default=None, description="Filter by venue city"),
-    needed_role: Optional[ParticipantRole] = Query(default=None, description="Filter by needed player role"),
+    needed_role: Optional[str] = Query(default=None, description="Filter by needed player role"),
     target_date: Optional[date] = Query(default=None, description="Filter by scheduled match date"),
     match_type: Optional[MatchType] = Query(default=None, description="Filter by match type"),
     session: AsyncSession = Depends(get_db),

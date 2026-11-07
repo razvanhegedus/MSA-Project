@@ -473,3 +473,28 @@ async def test_ai_chat_endpoint_with_auth(
     assert "invoked_tools" in body
     assert body["reply"] == reply_text
     assert body["invoked_tools"] == []
+
+
+@pytest.mark.asyncio
+async def test_ai_chat_local_fallback_on_llm_error(
+    db_session: AsyncSession, seeded_pitch: Pitch
+) -> None:
+    """When LLM API raises an exception, service falls back to local DB queries."""
+    service = AIConciergeService(db_session)
+    with patch.object(
+        service.client.chat.completions,
+        "create",
+        side_effect=Exception("API key invalid or network error"),
+    ):
+        # 1. Pitch search query fallback
+        payload = AIChatRequest(message="Any pitches in Reșița?")
+        result = await service.handle_chat(payload)
+        assert len(result.invoked_tools) == 1
+        assert result.invoked_tools[0].tool_name == "search_pitches"
+        assert "Reșița" in result.reply
+
+        # 2. Match lobby query fallback
+        payload_lobbies = AIChatRequest(message="Show me lobbies needing players in Reșița")
+        result_lobbies = await service.handle_chat(payload_lobbies)
+        assert len(result_lobbies.invoked_tools) == 1
+        assert result_lobbies.invoked_tools[0].tool_name == "find_open_lobbies"

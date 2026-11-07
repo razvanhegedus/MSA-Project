@@ -296,3 +296,23 @@ async def test_tournament_lifecycle_and_team_registration(
     t_details = get_t_resp.json()
     assert t_details["teams_count"] == 4
     assert len(t_details["teams"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_match_list_position_filter(
+    client: AsyncClient, setup_match_with_1_slot_left
+) -> None:
+    """Verify listing matches allows filtering by string position tags."""
+    _, _, _, _, match = setup_match_with_1_slot_left
+
+    # Match has needed_positions=["MIDFIELDER"]
+    resp_match = await client.get("/api/v1/matches?needed_role=Midfielder")
+    assert resp_match.status_code == 200
+    data = resp_match.json()
+    assert any(m["id"] == str(match.id) for m in data)
+
+    # Filter by non-matching position returns empty list
+    resp_nomatch = await client.get("/api/v1/matches?needed_role=Goalkeeper")
+    assert resp_nomatch.status_code == 200
+    data_nomatch = resp_nomatch.json()
+    assert not any(m["id"] == str(match.id) for m in data_nomatch)

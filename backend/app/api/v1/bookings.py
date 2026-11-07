@@ -81,6 +81,12 @@ async def create_booking(
     status_code=status.HTTP_200_OK,
     summary="List all bookings for the authenticated user",
 )
+@router.get(
+    "/bookings/my",
+    response_model=List[BookingResponse],
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+)
 async def list_my_bookings(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),

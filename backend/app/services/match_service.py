@@ -126,7 +126,7 @@ class MatchService:
     async def find_open_lobbies(
         self,
         city: Optional[str] = None,
-        needed_role: Optional[ParticipantRole] = None,
+        needed_role: Optional[str] = None,
         target_date: Optional[date] = None,
         match_type: Optional[MatchType] = None,
     ) -> List[MatchDetailResponse]:

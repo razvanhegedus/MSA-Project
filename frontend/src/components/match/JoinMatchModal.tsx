@@ -10,13 +10,23 @@ interface JoinMatchModalProps {
   isLoading: boolean;
 }
 
+const AVAILABLE_ROLES = [
+  'PLAYER',
+  'GOALKEEPER',
+  'DEFENDER',
+  'MIDFIELDER',
+  'FORWARD',
+] as const;
+
+type AvailableRole = (typeof AVAILABLE_ROLES)[number];
+
 const JoinMatchModal: React.FC<JoinMatchModalProps> = ({
   isOpen,
   onClose,
   onConfirm,
   isLoading,
 }) => {
-  const [role, setRole] = useState<ParticipantRole>('PLAYER');
+  const [selectedRole, setSelectedRole] = useState<AvailableRole>('PLAYER');
   const [teamSide, setTeamSide] = useState<TeamSide>('A');
 
   if (!isOpen) return null;
@@ -50,15 +60,16 @@ const JoinMatchModal: React.FC<JoinMatchModalProps> = ({
           {/* Role selection */}
           <div>
             <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">
-              Your Role
+              Your Role / Position
             </label>
             <div className="grid grid-cols-3 gap-2">
-              {(['PLAYER', 'GOALKEEPER', 'ORGANIZER'] as ParticipantRole[]).map((r) => (
+              {AVAILABLE_ROLES.map((r) => (
                 <button
                   key={r}
-                  onClick={() => setRole(r)}
+                  type="button"
+                  onClick={() => setSelectedRole(r)}
                   className={`py-2.5 rounded-xl text-xs font-semibold border transition-all ${
-                    role === r
+                    selectedRole === r
                       ? 'bg-slate-900 text-white border-slate-900'
                       : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
                   }`}
@@ -95,7 +106,11 @@ const JoinMatchModal: React.FC<JoinMatchModalProps> = ({
         {/* Footer */}
         <div className="px-5 pb-8 pt-2">
           <button
-            onClick={() => onConfirm({ role, team_side: teamSide })}
+            onClick={() => {
+              const mappedRole: ParticipantRole =
+                selectedRole === 'GOALKEEPER' ? 'GOALKEEPER' : 'PLAYER';
+              onConfirm({ role: mappedRole, team_side: teamSide });
+            }}
             disabled={isLoading}
             className="w-full h-12 rounded-2xl bg-slate-900 text-white font-bold text-sm shadow-sm hover:bg-slate-800 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >

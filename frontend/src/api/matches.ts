@@ -41,6 +41,8 @@ export const useJoinMatch = (matchId: string) => {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['open-matches'] });
       void queryClient.invalidateQueries({ queryKey: ['match-detail', matchId] });
+      void queryClient.invalidateQueries({ queryKey: ['pitch-availability'] });
+      void queryClient.invalidateQueries({ queryKey: ['user-bookings'] });
     },
   });
 };

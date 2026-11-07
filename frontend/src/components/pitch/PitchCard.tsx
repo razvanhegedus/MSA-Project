@@ -26,7 +26,7 @@ const SURFACE_CONFIG: Record<
     icon: <Grid3X3 className="w-3 h-3" />,
     color: 'bg-purple-100 text-purple-800 border-purple-200',
     image:
-      'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1551958219-acbc608c6377?auto=format&fit=crop&w=800&q=80',
   },
   NATURAL_GRASS: {
     label: 'Natural Grass',

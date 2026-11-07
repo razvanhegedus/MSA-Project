@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Loader2, AlertCircle, Users, Shield, Sparkles } from 'lucide-react';
+import { Loader2, AlertCircle, Users, Shield, Sparkles, CheckCircle2, X } from 'lucide-react';
 import MobileHeader from '../components/layout/MobileHeader';
 import MatchLobbyCard from '../components/match/MatchLobbyCard';
 import JoinMatchModal from '../components/match/JoinMatchModal';
@@ -9,6 +9,7 @@ import { JoinMatchPayload } from '../types/api';
 import { useAuth } from '../context/AuthContext';
 
 type MatchTypeTab = 'OPEN_LOBBY' | 'SQUAD_CHALLENGE';
+type RoleFilterType = 'ALL' | 'GOALKEEPER' | 'DEFENDER' | 'MIDFIELDER' | 'FORWARD';
 
 const MatchesPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -16,17 +17,17 @@ const MatchesPage: React.FC = () => {
   const { user } = useAuth();
 
   const [activeTab, setActiveTab] = useState<MatchTypeTab>('OPEN_LOBBY');
-  const [roleFilter, setRoleFilter] = useState<'ALL' | 'GOALKEEPER'>('ALL');
+  const [roleFilter, setRoleFilter] = useState<RoleFilterType>('ALL');
   const [joiningMatchId, setJoiningMatchId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const { data: matches = [], isLoading, isError } = useOpenMatches(undefined, 'OPEN');
 
   const filteredMatches = matches.filter((m) => {
     if (m.match_type !== activeTab) return false;
-    if (roleFilter === 'GOALKEEPER') {
-      return m.needed_positions?.some((p) =>
-        p.toUpperCase().includes('GOALKEEPER')
-      );
+    if (roleFilter !== 'ALL') {
+      return m.needed_positions?.some((p) => p.toUpperCase().includes(roleFilter));
     }
     return true;
   });
@@ -39,15 +40,54 @@ const MatchesPage: React.FC = () => {
 
   const handleConfirmJoin = (payload: JoinMatchPayload) => {
     if (!joiningMatchId) return;
+    setErrorMessage(null);
     joinMatch.mutate(payload, {
-      onSuccess: () => setJoiningMatchId(null),
-      onError: () => setJoiningMatchId(null),
+      onSuccess: () => {
+        setJoiningMatchId(null);
+        setSuccessMessage('🎉 Successfully joined the match lobby!');
+        setTimeout(() => setSuccessMessage(null), 4000);
+      },
+      onError: (err: any) => {
+        setJoiningMatchId(null);
+        const msg =
+          err?.response?.data?.detail || err?.message || 'Failed to join match lobby.';
+        setErrorMessage(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      },
     });
   };
 
   return (
     <div className="w-full space-y-6">
       <MobileHeader title="Open Lobbies" />
+
+      {/* Alert Notifications */}
+      {errorMessage && (
+        <div className="flex items-center gap-3 bg-red-50 border border-red-300 rounded-2xl p-4 text-sm font-semibold text-red-900 shadow-sm animate-in fade-in slide-in-from-top-2">
+          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+          <span>{errorMessage}</span>
+          <button
+            type="button"
+            onClick={() => setErrorMessage(null)}
+            className="ml-auto text-red-600 hover:text-red-800"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-300 rounded-2xl p-4 text-sm font-semibold text-emerald-900 shadow-sm animate-in fade-in slide-in-from-top-2">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+          <span>{successMessage}</span>
+          <button
+            type="button"
+            onClick={() => setSuccessMessage(null)}
+            className="ml-auto text-emerald-600 hover:text-emerald-800"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Desktop / Responsive Page Header */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm space-y-3">
@@ -92,7 +132,7 @@ const MatchesPage: React.FC = () => {
           </div>
 
           {/* Role filter */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setRoleFilter('ALL')}
@@ -114,6 +154,39 @@ const MatchesPage: React.FC = () => {
               }`}
             >
               <Shield className="w-3.5 h-3.5 text-amber-500" /> GK Needed
+            </button>
+            <button
+              type="button"
+              onClick={() => setRoleFilter('DEFENDER')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                roleFilter === 'DEFENDER'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              Defender
+            </button>
+            <button
+              type="button"
+              onClick={() => setRoleFilter('MIDFIELDER')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                roleFilter === 'MIDFIELDER'
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              Midfielder
+            </button>
+            <button
+              type="button"
+              onClick={() => setRoleFilter('FORWARD')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                roleFilter === 'FORWARD'
+                  ? 'bg-red-600 text-white border-red-600'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              Forward
             </button>
           </div>
         </div>

@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime, time, timezone
-from typing import List, Optional
+from typing import List, Optional, Union
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -53,7 +53,7 @@ class MatchRepository:
     async def find_open_lobbies(
         self,
         city: Optional[str] = None,
-        needed_role: Optional[ParticipantRole] = None,
+        needed_role: Optional[Union[ParticipantRole, str]] = None,
         target_date: Optional[date] = None,
         match_type: Optional[MatchType] = None,
     ) -> List[Match]:
@@ -68,7 +68,11 @@ class MatchRepository:
             conditions.append(and_(Match.scheduled_at >= day_start, Match.scheduled_at <= day_end))
 
         if needed_role:
-            conditions.append(Match.needed_positions.any(needed_role.value))
+            role_str = needed_role.value if hasattr(needed_role, 'value') else str(needed_role)
+            role_upper = role_str.strip().upper()
+            conditions.append(
+                func.upper(func.array_to_string(Match.needed_positions, ',')).contains(role_upper)
+            )
 
         if match_type:
             conditions.append(Match.match_type == match_type)

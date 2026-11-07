@@ -60,8 +60,26 @@ const AIAssistantPage: React.FC = () => {
             { role: 'assistant', content: data.reply, tools: data.invoked_tools },
           ]);
         },
+        onError: () => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'assistant',
+              content:
+                'I am currently experiencing connection difficulties with the AI service. Please explore available pitches and open matches directly in the app!',
+            },
+          ]);
+        },
       }
     );
+  };
+
+  const getSummaryItems = (tool: ToolCallPayload): Record<string, unknown>[] => {
+    if (!tool.result_summary) return [];
+    const summaryList = Array.isArray(tool.result_summary)
+      ? tool.result_summary
+      : [tool.result_summary];
+    return summaryList as Record<string, unknown>[];
   };
 
   return (
@@ -112,7 +130,7 @@ const AIAssistantPage: React.FC = () => {
             {msg.tools?.map((tool, tIdx) => (
               <div key={tIdx} className="mt-2 w-full max-w-[85%] sm:max-w-[75%] space-y-2">
                 {tool.tool_name === 'search_pitches' &&
-                  tool.result_summary.map((pitch, pIdx) => (
+                  getSummaryItems(tool).map((pitch, pIdx) => (
                     <div
                       key={pIdx}
                       onClick={() => {
@@ -136,7 +154,7 @@ const AIAssistantPage: React.FC = () => {
                   ))}
 
                 {tool.tool_name === 'find_open_lobbies' &&
-                  tool.result_summary.map((lobby, lIdx) => (
+                  getSummaryItems(tool).map((lobby, lIdx) => (
                     <div
                       key={lIdx}
                       onClick={() => {

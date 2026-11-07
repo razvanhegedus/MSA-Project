@@ -30,6 +30,8 @@ export const useCreateBooking = (pitchId: string, targetDate: string) => {
       void queryClient.invalidateQueries({
         queryKey: ['pitch-availability', pitchId, targetDate],
       });
+      void queryClient.invalidateQueries({ queryKey: ['pitch-availability'] });
+      void queryClient.invalidateQueries({ queryKey: ['user-bookings'] });
       void queryClient.invalidateQueries({ queryKey: ['open-matches'] });
     },
   });
@@ -39,7 +41,7 @@ export const useUserBookings = () => {
   return useQuery<BookingResponse[]>({
     queryKey: ['user-bookings'],
     queryFn: async () => {
-      const { data } = await apiClient.get<BookingResponse[]>('/bookings/my');
+      const { data } = await apiClient.get<BookingResponse[]>('/bookings/me');
       return data;
     },
   });
