@@ -9,7 +9,7 @@ export type ParticipantRole = 'ORGANIZER' | 'PLAYER' | 'GOALKEEPER';
 export type ParticipantStatus = 'CONFIRMED' | 'PENDING';
 export type TournamentFormat = 'SINGLE_ELIMINATION' | 'GROUP_AND_KNOCKOUT';
 export type TournamentStatus = 'REGISTRATION_OPEN' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
-export type SlotStatus = 'AVAILABLE' | 'OCCUPIED' | 'OPEN_LOBBY';
+export type SlotStatus = 'AVAILABLE' | 'OCCUPIED' | 'OPEN_LOBBY' | 'PAST';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 export interface RegisterPayload {
@@ -98,6 +98,16 @@ export interface BookingResponse {
   total_price: number;
   status: BookingStatus;
   created_at: string;
+  pitch_name?: string | null;
+  venue_name?: string | null;
+  city?: string | null;
+  match?: MatchDetailResponse | null;
+  open_match_id?: string | null;
+  target_players?: number | null;
+  current_players_count?: number | null;
+  spots_left?: number | null;
+  needed_positions?: string[] | null;
+  lobby_description?: string | null;
 }
 
 // ─── Matches ──────────────────────────────────────────────────────────────────
@@ -136,6 +146,21 @@ export interface MatchDetailResponse extends MatchResponse {
 export interface JoinMatchPayload {
   team_side: TeamSide;
   role: ParticipantRole;
+}
+
+export interface MatchUpdatePayload {
+  target_players?: number;
+  needed_positions?: string[];
+  description?: string;
+  spots_needed?: number;
+}
+
+export interface MatchCreatePayload {
+  booking_id: string;
+  match_type?: MatchType;
+  target_players: number;
+  needed_positions?: string[];
+  description?: string;
 }
 
 // ─── Tournaments ──────────────────────────────────────────────────────────────

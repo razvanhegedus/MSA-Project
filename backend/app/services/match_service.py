@@ -10,7 +10,13 @@ from app.models.base_entities import Match, MatchParticipant
 from app.models.enums import BookingStatus, MatchStatus, MatchType, ParticipantRole, ParticipantStatus, TeamSide
 from app.repositories.booking_repo import BookingRepository
 from app.repositories.match_repo import MatchRepository
-from app.schemas.match import MatchCreateRequest, MatchDetailResponse, MatchJoinRequest, MatchParticipantResponse
+from app.schemas.match import (
+    MatchCreateRequest,
+    MatchDetailResponse,
+    MatchJoinRequest,
+    MatchParticipantResponse,
+    MatchUpdateRequest,
+)
 
 
 class MatchService:
@@ -122,6 +128,62 @@ class MatchService:
         if not match:
             raise ResourceNotFoundError("Match")
         return self._to_detail_response(match)
+
+    async def list_user_joined_matches(
+        self, user_id: uuid.UUID
+    ) -> List[MatchDetailResponse]:
+        matches = await self.repo.list_user_joined_matches(user_id)
+        return [self._to_detail_response(m) for m in matches]
+
+    async def update_match(
+        self, match_id: uuid.UUID, user_id: uuid.UUID, payload: MatchUpdateRequest
+    ) -> MatchDetailResponse:
+        match = await self.repo.get_match_for_update(match_id)
+        if not match:
+            raise ResourceNotFoundError("Match")
+
+        if match.organizer_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the match organizer can update this lobby.",
+            )
+
+        confirmed_count = sum(
+            1 for p in match.participants if p.status == ParticipantStatus.CONFIRMED
+        )
+
+        if payload.spots_needed is not None:
+            new_target = confirmed_count + payload.spots_needed
+            if new_target > 22:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Total target players cannot exceed 22.",
+                )
+            match.target_players = new_target
+        elif payload.target_players is not None:
+            if payload.target_players < confirmed_count:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Target players ({payload.target_players}) cannot be less than confirmed players ({confirmed_count}).",
+                )
+            match.target_players = payload.target_players
+
+        if payload.needed_positions is not None:
+            match.needed_positions = payload.needed_positions
+
+        if payload.description is not None:
+            match.description = payload.description
+
+        if confirmed_count < match.target_players:
+            if match.status == MatchStatus.FULL:
+                match.status = MatchStatus.OPEN
+        else:
+            match.status = MatchStatus.FULL
+
+        await self.session.commit()
+        self.session.expire_all()
+        updated_match = await self.repo.get_match_by_id(match_id)
+        return self._to_detail_response(updated_match)
 
     async def find_open_lobbies(
         self,

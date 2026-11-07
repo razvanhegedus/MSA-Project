@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import {
-  MapPin,
   Bell,
   LogOut,
   User as UserIcon,
@@ -14,32 +13,21 @@ import { useAuth } from '../../context/AuthContext';
 
 interface DesktopHeaderProps {
   className?: string;
-  selectedCity?: string;
-  onSelectCity?: (city: string) => void;
 }
-
-const CITIES = ['All Cities', 'Cluj-Napoca', 'Timișoara', 'București', 'Iași', 'Brașov'];
 
 const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   className = '',
-  selectedCity = 'All Cities',
-  onSelectCity,
 }) => {
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
-  const [cityMenuOpen, setCityMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
-  const cityMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (cityMenuRef.current && !cityMenuRef.current.contains(e.target as Node)) {
-        setCityMenuOpen(false);
-      }
       if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
         setUserMenuOpen(false);
       }
@@ -51,13 +39,6 @@ const DesktopHeader: React.FC<DesktopHeaderProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleCityPick = (city: string) => {
-    if (onSelectCity) {
-      onSelectCity(city === 'All Cities' ? '' : city);
-    }
-    setCityMenuOpen(false);
-  };
-
   const handleLogout = async () => {
     setUserMenuOpen(false);
     await logout();
@@ -68,8 +49,8 @@ const DesktopHeader: React.FC<DesktopHeaderProps> = ({
     <header
       className={`bg-white/95 backdrop-blur-sm border-b border-slate-200 sticky top-0 z-40 px-6 lg:px-8 py-3.5 items-center justify-between ${className}`}
     >
-      {/* ─── Left: Brand & Location Selector ─── */}
-      <div className="flex items-center gap-6">
+      {/* ─── Left: Brand Logo ─── */}
+      <div className="flex items-center">
         <Link to="/" className="flex items-center gap-2.5 group">
           <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-700 to-emerald-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform">
             <span className="text-xl">⚽</span>
@@ -83,44 +64,6 @@ const DesktopHeader: React.FC<DesktopHeaderProps> = ({
             </span>
           </div>
         </Link>
-
-        {/* Location selector dropdown */}
-        <div className="relative" ref={cityMenuRef}>
-          <button
-            type="button"
-            onClick={() => setCityMenuOpen(!cityMenuOpen)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors"
-          >
-            <MapPin className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-            <span>{selectedCity || 'All Cities'}</span>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-          </button>
-
-          {cityMenuOpen && (
-            <div className="absolute left-0 mt-2 w-48 bg-white border border-slate-200 rounded-2xl shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
-              <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                Select City
-              </div>
-              {CITIES.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => handleCityPick(c)}
-                  className={`w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-slate-50 flex items-center justify-between transition-colors ${
-                    (selectedCity === c || (c === 'All Cities' && !selectedCity))
-                      ? 'text-emerald-600 font-bold bg-emerald-50/50'
-                      : 'text-slate-700'
-                  }`}
-                >
-                  <span>{c}</span>
-                  {(selectedCity === c || (c === 'All Cities' && !selectedCity)) && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* ─── Center: Main Navigation Links ─── */}

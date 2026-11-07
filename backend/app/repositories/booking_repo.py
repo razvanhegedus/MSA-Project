@@ -5,7 +5,7 @@ from sqlalchemy import select, and_, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.base_entities import Booking, Pitch, Venue, Match
+from app.models.base_entities import Booking, Pitch, Venue, Match, MatchParticipant
 from app.models.enums import BookingStatus, SurfaceType
 
 
@@ -56,8 +56,8 @@ class BookingRepository:
         stmt = (
             select(Booking)
             .options(
-                selectinload(Booking.pitch),
-                selectinload(Booking.match).selectinload(Match.participants),
+                selectinload(Booking.pitch).selectinload(Pitch.venue),
+                selectinload(Booking.match).selectinload(Match.participants).selectinload(MatchParticipant.user),
             )
             .where(Booking.id == booking_id)
         )
@@ -67,7 +67,10 @@ class BookingRepository:
     async def list_user_bookings(self, user_id: uuid.UUID) -> List[Booking]:
         stmt = (
             select(Booking)
-            .options(selectinload(Booking.pitch))
+            .options(
+                selectinload(Booking.pitch).selectinload(Pitch.venue),
+                selectinload(Booking.match).selectinload(Match.participants).selectinload(MatchParticipant.user),
+            )
             .where(Booking.booked_by_user_id == user_id)
             .order_by(Booking.start_time.desc())
         )

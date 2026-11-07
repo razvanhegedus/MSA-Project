@@ -40,7 +40,7 @@ const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
           <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block shadow-sm" /> Open Lobby (+1)
         </span>
         <span className="flex items-center gap-1.5 font-semibold text-slate-400">
-          <span className="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block" /> Occupied
+          <span className="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block" /> Passed / Occupied
         </span>
       </div>
 
@@ -49,6 +49,23 @@ const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
         {slots.map((slot) => {
           const isSelected = selectedSlot?.start_time === slot.start_time;
           const timeLabel = `${formatHour(slot.start_time)}–${formatHour(slot.end_time)}`;
+          const isPast = slot.status === 'PAST' || new Date(slot.start_time) <= new Date();
+
+          if (isPast) {
+            return (
+              <button
+                key={slot.start_time}
+                disabled
+                className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60 select-none"
+                aria-label={`${timeLabel} – Passed`}
+              >
+                <span className="text-xs font-semibold line-through">{timeLabel}</span>
+                <span className="mt-1 flex items-center gap-1 text-[11px]">
+                  <Lock className="w-3 h-3" /> Passed
+                </span>
+              </button>
+            );
+          }
 
           if (slot.status === 'OCCUPIED') {
             return (

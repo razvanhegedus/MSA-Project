@@ -316,3 +316,80 @@ async def test_match_list_position_filter(
     assert resp_nomatch.status_code == 200
     data_nomatch = resp_nomatch.json()
     assert not any(m["id"] == str(match.id) for m in data_nomatch)
+
+
+@pytest.mark.asyncio
+async def test_user_matches_and_update_lobby(
+    client: AsyncClient, setup_match_with_1_slot_left, setup_5_joiners
+) -> None:
+    """Verify GET /api/v1/matches/me, PATCH /api/v1/matches/{id}, and enriched booking responses."""
+    organizer, venue, pitch, booking, match = setup_match_with_1_slot_left
+    players, tokens = setup_5_joiners
+
+    org_token = create_access_token(subject=str(organizer.id))
+    p1_token = tokens[0]
+
+    # 1. Organizer sees their organized match in /matches/me
+    my_matches_resp = await client.get(
+        "/api/v1/matches/me", headers={"Authorization": f"Bearer {org_token}"}
+    )
+    assert my_matches_resp.status_code == 200
+    my_matches = my_matches_resp.json()
+    assert any(m["id"] == str(match.id) for m in my_matches)
+
+    # 2. Player joins the match
+    join_resp = await client.post(
+        f"/api/v1/matches/{match.id}/join",
+        json={"team_side": "B", "role": "PLAYER"},
+        headers={"Authorization": f"Bearer {p1_token}"},
+    )
+    assert join_resp.status_code == 200
+
+    # 3. Player now also sees the match in their /matches/me
+    p1_matches_resp = await client.get(
+        "/api/v1/matches/me", headers={"Authorization": f"Bearer {p1_token}"}
+    )
+    assert p1_matches_resp.status_code == 200
+    assert any(m["id"] == str(match.id) for m in p1_matches_resp.json())
+
+    # 4. Non-organizer attempts to PATCH the lobby -> 403 Forbidden
+    unauth_patch = await client.patch(
+        f"/api/v1/matches/{match.id}",
+        json={"spots_needed": 3},
+        headers={"Authorization": f"Bearer {p1_token}"},
+    )
+    assert unauth_patch.status_code == 403
+
+    # 5. Organizer updates lobby with spots_needed=3 (confirmed_count=2, so target_players becomes 5)
+    patch_resp = await client.patch(
+        f"/api/v1/matches/{match.id}",
+        json={
+            "spots_needed": 3,
+            "needed_positions": ["Goalkeeper", "Forward"],
+            "description": "Updated: Need 3 more players!",
+        },
+        headers={"Authorization": f"Bearer {org_token}"},
+    )
+    assert patch_resp.status_code == 200
+    patched = patch_resp.json()
+    assert patched["target_players"] == 5
+    assert patched["current_players_count"] == 2
+    assert patched["status"] == "OPEN"
+    assert patched["description"] == "Updated: Need 3 more players!"
+    assert patched["needed_positions"] == ["Goalkeeper", "Forward"]
+
+    # 6. Check enriched Booking response via /bookings/me
+    bookings_resp = await client.get(
+        "/api/v1/bookings/me", headers={"Authorization": f"Bearer {org_token}"}
+    )
+    assert bookings_resp.status_code == 200
+    b_data = bookings_resp.json()
+    assert len(b_data) > 0
+    my_b = next((b for b in b_data if b["id"] == str(match.booking_id)), None)
+    assert my_b is not None
+    assert my_b["pitch_name"] == pitch.name
+    assert my_b["venue_name"] == venue.name
+    assert my_b["city"] == venue.city
+    assert my_b["match"] is not None
+    assert my_b["open_match_id"] == str(match.id)
+    assert my_b["spots_left"] == 3

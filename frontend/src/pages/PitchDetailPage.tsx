@@ -38,12 +38,19 @@ const GALLERY_IMAGES = [
 
 const POSITION_OPTIONS = ['Goalkeeper', 'Defender', 'Midfielder', 'Forward'];
 
+const formatLocalDate = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const PitchDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatLocalDate();
   const [selectedDate, setSelectedDate] = useState(today);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [drawerSlot, setDrawerSlot] = useState<TimeSlot | null>(null);
@@ -355,7 +362,7 @@ const PitchDetailPage: React.FC = () => {
                 </p>
               </div>
               <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">
-                {slots.filter((s) => s.status === 'AVAILABLE').length} Slots Available
+                {slots.filter((s) => s.status === 'AVAILABLE' && new Date(s.start_time) > new Date()).length} Slots Available
               </span>
             </div>
 

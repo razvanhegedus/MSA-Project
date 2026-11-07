@@ -20,7 +20,12 @@ const DateScroller: React.FC<DateScrollerProps> = ({
     return d;
   });
 
-  const toIso = (d: Date) => d.toISOString().slice(0, 10);
+  const formatLocalDate = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
   const formatDay = (d: Date) =>
     d.toLocaleDateString('en-GB', { weekday: 'short' });
@@ -74,9 +79,9 @@ const DateScroller: React.FC<DateScrollerProps> = ({
         className="flex gap-2.5 overflow-x-auto no-scrollbar scroll-smooth py-1 px-0.5"
       >
         {dates.map((d) => {
-          const iso = toIso(d);
+          const iso = formatLocalDate(d);
           const isActive = iso === selectedDate;
-          const isToday = iso === toIso(new Date());
+          const isToday = iso === formatLocalDate(new Date());
 
           return (
             <button

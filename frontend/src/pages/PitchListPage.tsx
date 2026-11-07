@@ -53,13 +53,24 @@ const PitchListPage: React.FC = () => {
     isError,
   } = useVenues(activeCity || undefined, selectedSurface !== 'ALL' ? selectedSurface : undefined);
 
-  // Flatten pitches across venues with venue context
+  // Flatten pitches across venues with venue context & deduplicate identical entries
   const allPitchesWithVenue: PitchWithVenueMeta[] = useMemo(() => {
     const list: PitchWithVenueMeta[] = [];
+    const seen = new Set<string>();
+
     venues.forEach((v) => {
       if (v.pitches && v.pitches.length > 0) {
         v.pitches.forEach((p) => {
-          list.push({ pitch: p, venue: v });
+          const normName = p.name.trim().toLowerCase();
+          const normAddress = v.address.trim().toLowerCase();
+          const normSurface = p.surface_type.trim().toUpperCase();
+          const normRate = Number(p.hourly_rate).toFixed(2);
+          const dedupKey = `${normName}|${normAddress}|${normSurface}|${normRate}`;
+
+          if (!seen.has(dedupKey)) {
+            seen.add(dedupKey);
+            list.push({ pitch: p, venue: v });
+          }
         });
       }
     });

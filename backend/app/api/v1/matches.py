@@ -12,6 +12,7 @@ from app.schemas.match import (
     MatchCreateRequest,
     MatchDetailResponse,
     MatchJoinRequest,
+    MatchUpdateRequest,
 )
 from app.services.match_service import MatchService
 
@@ -58,6 +59,21 @@ async def create_match(
 
 
 @router.get(
+    "/me",
+    response_model=List[MatchDetailResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List all matches joined or organized by the current user",
+)
+async def list_my_matches(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> List[MatchDetailResponse]:
+    """Retrieve all match lobbies the authenticated user is currently participating in or organizing."""
+    service = MatchService(session)
+    return await service.list_user_joined_matches(user_id=current_user.id)
+
+
+@router.get(
     "/{match_id}",
     response_model=MatchDetailResponse,
     status_code=status.HTTP_200_OK,
@@ -90,5 +106,24 @@ async def join_match(
     """
     service = MatchService(session)
     return await service.join_match(
+        match_id=match_id, user_id=current_user.id, payload=payload
+    )
+
+
+@router.patch(
+    "/{match_id}",
+    response_model=MatchDetailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update match lobby details or player requirements",
+)
+async def update_match(
+    match_id: uuid.UUID,
+    payload: MatchUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> MatchDetailResponse:
+    """Modify required positions, target players, or description for an organized lobby."""
+    service = MatchService(session)
+    return await service.update_match(
         match_id=match_id, user_id=current_user.id, payload=payload
     )

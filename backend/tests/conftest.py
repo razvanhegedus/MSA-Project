@@ -6,13 +6,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import engine, async_session_maker
 from app.main import app
+from app.seed import clean_test_artifacts
 
 
 @pytest.fixture(autouse=True)
 async def cleanup_db_connections():
-    """Ensure engine connection pool is cleanly closed between test event loops."""
+    """Clean up test entities and ensure engine connection pool is cleanly closed between test event loops."""
+    await clean_test_artifacts()
     yield
-    await engine.dispose()
+    try:
+        await clean_test_artifacts()
+    finally:
+        await engine.dispose()
 
 
 @pytest.fixture

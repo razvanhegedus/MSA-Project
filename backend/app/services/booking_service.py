@@ -11,6 +11,7 @@ from app.models.base_entities import Booking, Match, MatchParticipant
 from app.models.enums import BookingStatus, MatchStatus, ParticipantRole, ParticipantStatus, TeamSide
 from app.repositories.booking_repo import BookingRepository
 from app.schemas.booking import BookingCreateRequest, BookingResponse, TimeSlotResponse
+from app.schemas.match import MatchDetailResponse, MatchParticipantResponse
 
 
 class BookingService:
@@ -34,6 +35,7 @@ class BookingService:
 
         existing_bookings = await self.repo.get_overlapping_bookings(pitch_id, day_start, day_end)
 
+        now = datetime.now(timezone.utc)
         slots: List[TimeSlotResponse] = []
         cursor = day_start
         while cursor < day_end:
@@ -43,7 +45,17 @@ class BookingService:
                 None,
             )
 
-            if not matching_booking:
+            if cursor <= now:
+                slots.append(
+                    TimeSlotResponse(
+                        start_time=cursor,
+                        end_time=next_hour,
+                        status="PAST",
+                        price=pitch.hourly_rate,
+                        booking_id=matching_booking.id if matching_booking else None,
+                    )
+                )
+            elif not matching_booking:
                 slots.append(
                     TimeSlotResponse(
                         start_time=cursor,
@@ -103,6 +115,12 @@ class BookingService:
         else:
             end_time = end_time.astimezone(timezone.utc)
 
+        if start_time <= datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot book a time slot in the past.",
+            )
+
         start_hour = start_time.hour
         end_hour = 24 if (end_time.hour == 0 and end_time.day > start_time.day) else end_time.hour
 
@@ -152,8 +170,8 @@ class BookingService:
                 self.session.add(organizer_participant)
 
             await self.session.commit()
-            await self.session.refresh(new_booking)
-            return BookingResponse.model_validate(new_booking)
+            fresh_booking = await self.repo.get_booking_by_id(new_booking.id)
+            return self._to_response(fresh_booking) if fresh_booking else BookingResponse.model_validate(new_booking)
 
         except IntegrityError as exc:
             await self.session.rollback()
@@ -166,12 +184,85 @@ class BookingService:
                 detail="Database integrity error during booking creation.",
             ) from exc
 
+    def _to_response(self, booking: Booking) -> BookingResponse:
+        pitch = booking.pitch
+        venue = pitch.venue if pitch else None
+        match_dto = None
+        open_match_id = None
+        target_players = None
+        current_players_count = None
+        spots_left = None
+        needed_positions = None
+        lobby_description = None
+
+        if booking.match:
+            m = booking.match
+            open_match_id = m.id
+            target_players = m.target_players
+            confirmed = [
+                p for p in m.participants if p.status == ParticipantStatus.CONFIRMED
+            ]
+            current_players_count = len(confirmed)
+            spots_left = max(0, m.target_players - current_players_count)
+            needed_positions = m.needed_positions
+            lobby_description = m.description
+
+            participants_dto = [
+                MatchParticipantResponse(
+                    id=p.id,
+                    user_id=p.user_id,
+                    full_name=p.user.full_name if p.user else "Player",
+                    team_side=p.team_side,
+                    role=p.role,
+                    status=p.status,
+                    joined_at=p.joined_at,
+                )
+                for p in m.participants
+            ]
+            match_dto = MatchDetailResponse(
+                id=m.id,
+                booking_id=m.booking_id,
+                organizer_id=m.organizer_id,
+                match_type=m.match_type,
+                target_players=m.target_players,
+                current_players_count=current_players_count,
+                needed_positions=m.needed_positions,
+                description=m.description,
+                status=m.status,
+                scheduled_at=m.scheduled_at,
+                venue_name=venue.name if venue else "",
+                pitch_name=pitch.name if pitch else "",
+                city=venue.city if venue else "",
+                participants=participants_dto,
+            )
+
+        return BookingResponse(
+            id=booking.id,
+            pitch_id=booking.pitch_id,
+            booked_by_user_id=booking.booked_by_user_id,
+            start_time=booking.start_time,
+            end_time=booking.end_time,
+            total_price=booking.total_price,
+            status=booking.status,
+            created_at=booking.created_at,
+            pitch_name=pitch.name if pitch else None,
+            venue_name=venue.name if venue else None,
+            city=venue.city if venue else None,
+            match=match_dto,
+            open_match_id=open_match_id,
+            target_players=target_players,
+            current_players_count=current_players_count,
+            spots_left=spots_left,
+            needed_positions=needed_positions,
+            lobby_description=lobby_description,
+        )
+
     async def list_user_bookings(self, user_id: uuid.UUID) -> List[BookingResponse]:
         bookings = await self.repo.list_user_bookings(user_id)
-        return [BookingResponse.model_validate(b) for b in bookings]
+        return [self._to_response(b) for b in bookings]
 
     async def get_booking(self, booking_id: uuid.UUID) -> BookingResponse:
         booking = await self.repo.get_booking_by_id(booking_id)
         if not booking:
             raise ResourceNotFoundError("Booking")
-        return BookingResponse.model_validate(booking)
+        return self._to_response(booking)

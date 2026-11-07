@@ -381,3 +381,44 @@ async def test_venues_and_bookings_api_flow(client: AsyncClient, setup_10_player
     )
     assert my_resp.status_code == 200
     assert my_resp.json() == my_bookings
+
+
+@pytest.mark.asyncio
+async def test_past_slot_availability_and_booking_rejection(
+    client: AsyncClient, setup_venue_and_pitch, setup_10_players
+):
+    """
+    Verify:
+    1. Querying availability for today marks all past hours (start_time <= now) as 'PAST'.
+    2. Attempting to book a past time slot returns HTTP 400 with detail 'Cannot book a time slot in the past.'.
+    """
+    owner, venue, pitch = setup_venue_and_pitch
+    players, tokens = setup_10_players
+
+    today = date.today()
+    avail_resp = await client.get(
+        f"/api/v1/pitches/{pitch.id}/availability?target_date={today.isoformat()}"
+    )
+    assert avail_resp.status_code == 200
+    slots = avail_resp.json()
+    now = datetime.now(timezone.utc)
+    for s in slots:
+        slot_start = datetime.fromisoformat(s["start_time"])
+        if slot_start <= now:
+            assert s["status"] == "PAST"
+
+    # Attempt to book in the past
+    past_start = (now - timedelta(hours=3)).replace(minute=0, second=0, microsecond=0)
+    past_end = past_start + timedelta(hours=1)
+    booking_resp = await client.post(
+        "/api/v1/bookings",
+        json={
+            "pitch_id": str(pitch.id),
+            "start_time": past_start.isoformat(),
+            "end_time": past_end.isoformat(),
+            "create_open_lobby": False,
+        },
+        headers={"Authorization": f"Bearer {tokens[0]}"},
+    )
+    assert booking_resp.status_code == 400
+    assert "Cannot book a time slot in the past." in booking_resp.json()["detail"]

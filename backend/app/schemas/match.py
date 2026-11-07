@@ -15,6 +15,13 @@ class MatchCreateRequest(BaseModel):
     description: Optional[str] = Field(default=None, max_length=500)
 
 
+class MatchUpdateRequest(BaseModel):
+    target_players: Optional[int] = Field(default=None, ge=2, le=22)
+    needed_positions: Optional[List[str]] = None
+    description: Optional[str] = Field(default=None, max_length=500)
+    spots_needed: Optional[int] = Field(default=None, ge=1, le=21)
+
+
 class MatchFilterQuery(BaseModel):
     city: Optional[str] = None
     match_type: Optional[MatchType] = None

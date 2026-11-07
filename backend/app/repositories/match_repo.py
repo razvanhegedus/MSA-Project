@@ -92,6 +92,23 @@ class MatchRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_user_joined_matches(self, user_id: uuid.UUID) -> List[Match]:
+        """
+        Fetch all matches where user_id is a participant (joined or organized).
+        """
+        stmt = (
+            select(Match)
+            .join(Match.participants)
+            .where(MatchParticipant.user_id == user_id)
+            .options(
+                selectinload(Match.participants).selectinload(MatchParticipant.user),
+                selectinload(Match.booking).selectinload(Booking.pitch).selectinload(Pitch.venue),
+            )
+            .order_by(Match.scheduled_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().unique().all())
+
     async def create_match(self, match: Match) -> Match:
         self.session.add(match)
         await self.session.flush()

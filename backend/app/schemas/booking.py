@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Optional, Literal, List
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 from app.models.enums import BookingStatus, MatchType
+from app.schemas.match import MatchDetailResponse
 
 
 class PitchAvailabilityQuery(BaseModel):
@@ -13,7 +14,7 @@ class PitchAvailabilityQuery(BaseModel):
 class TimeSlotResponse(BaseModel):
     start_time: datetime
     end_time: datetime
-    status: Literal["AVAILABLE", "OCCUPIED", "OPEN_LOBBY"]
+    status: Literal["AVAILABLE", "OCCUPIED", "OPEN_LOBBY", "PAST"]
     price: Decimal
     booking_id: Optional[uuid.UUID] = None
     open_match_id: Optional[uuid.UUID] = None
@@ -54,3 +55,14 @@ class BookingResponse(BaseModel):
     total_price: Decimal
     status: BookingStatus
     created_at: datetime
+
+    pitch_name: Optional[str] = None
+    venue_name: Optional[str] = None
+    city: Optional[str] = None
+    match: Optional[MatchDetailResponse] = None
+    open_match_id: Optional[uuid.UUID] = None
+    target_players: Optional[int] = None
+    current_players_count: Optional[int] = None
+    spots_left: Optional[int] = None
+    needed_positions: Optional[List[str]] = None
+    lobby_description: Optional[str] = None
