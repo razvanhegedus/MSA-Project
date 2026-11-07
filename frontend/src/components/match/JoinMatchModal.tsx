@@ -23,11 +23,11 @@ const JoinMatchModal: React.FC<JoinMatchModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col justify-end bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex flex-col justify-end lg:justify-center items-center bg-black/50 backdrop-blur-sm p-0 lg:p-4"
       onClick={onClose}
     >
       <div
-        className="max-w-md mx-auto w-full bg-white rounded-t-3xl shadow-2xl"
+        className="max-w-md mx-auto w-full bg-white rounded-t-3xl lg:rounded-2xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Handle */}

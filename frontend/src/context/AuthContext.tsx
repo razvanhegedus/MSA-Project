@@ -47,11 +47,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [fetchMe]);
 
   const register = useCallback(async (payload: RegisterPayload) => {
-    const { data } = await apiClient.post<TokenResponse>('/auth/register', payload);
-    localStorage.setItem('access_token', data.access_token);
-    localStorage.setItem('refresh_token', data.refresh_token);
-    await fetchMe();
-  }, [fetchMe]);
+    await apiClient.post('/auth/register', payload);
+    await login({ email: payload.email, password: payload.password });
+  }, [login]);
 
   const logout = useCallback(async () => {
     const refreshToken = localStorage.getItem('refresh_token');

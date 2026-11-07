@@ -1,7 +1,7 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import MobileShell from './components/layout/MobileShell';
-import BottomNav from './components/layout/BottomNav';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 import AIChatDrawer from './components/ai/AIChatDrawer';
 import HomePage from './pages/HomePage';
 import PitchDetailPage from './pages/PitchDetailPage';
@@ -10,12 +10,14 @@ import ProfilePage from './pages/ProfilePage';
 import AIAssistantPage from './pages/AIAssistantPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import { useAuth } from './context/AuthContext';
 
-// Pages that should NOT show the bottom nav or AI FAB
 const AUTH_ROUTES = ['/login', '/register'];
 
 const App: React.FC = () => {
-  const isAuthRoute = AUTH_ROUTES.some((r) => window.location.pathname.startsWith(r));
+  const location = useLocation();
+  const { isAuthenticated, isLoading } = useAuth();
+  const isAuthRoute = AUTH_ROUTES.some((r) => location.pathname.startsWith(r));
 
   return (
     <MobileShell>
@@ -24,27 +26,59 @@ const App: React.FC = () => {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
 
-        {/* App routes */}
-        <Route path="/" element={<HomePage />} />
-        <Route path="/pitches/:id" element={<PitchDetailPage />} />
-        <Route path="/matches" element={<MatchesPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/ai-assistant" element={<AIAssistantPage />} />
+        {/* Protected App routes: User must be signed in */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <HomePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/pitches/:id"
+          element={
+            <ProtectedRoute>
+              <PitchDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/matches"
+          element={
+            <ProtectedRoute>
+              <MatchesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <ProfilePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/ai-assistant"
+          element={
+            <ProtectedRoute>
+              <AIAssistantPage />
+            </ProtectedRoute>
+          }
+        />
 
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* Fallback: Unauthenticated goes to /login, Authenticated goes to / */}
+        <Route
+          path="*"
+          element={<Navigate to={isAuthenticated ? '/' : '/login'} replace />}
+        />
       </Routes>
 
-      {/* Global persistent UI — only on app routes */}
-      {!isAuthRoute && (
-        <>
-          <BottomNav />
-          <AIChatDrawer />
-        </>
-      )}
+      {/* Global AI Assistant Floating Drawer — only when signed in */}
+      {isAuthenticated && !isAuthRoute && !isLoading && <AIChatDrawer />}
     </MobileShell>
   );
 };
 
 export default App;
-

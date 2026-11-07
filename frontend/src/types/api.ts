@@ -53,6 +53,7 @@ export interface VenueResponse {
   opening_hour: number;
   closing_hour: number;
   created_at: string;
+  pitches?: PitchResponse[];
 }
 
 export interface PitchResponse {

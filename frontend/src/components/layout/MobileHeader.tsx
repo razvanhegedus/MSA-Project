@@ -6,13 +6,21 @@ interface MobileHeaderProps {
   title: string;
   showBack?: boolean;
   rightElement?: React.ReactNode;
+  className?: string;
 }
 
-const MobileHeader: React.FC<MobileHeaderProps> = ({ title, showBack = false, rightElement }) => {
+const MobileHeader: React.FC<MobileHeaderProps> = ({
+  title,
+  showBack = false,
+  rightElement,
+  className = '',
+}) => {
   const navigate = useNavigate();
 
   return (
-    <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border-b border-slate-200 px-4 py-3 flex items-center gap-3">
+    <header
+      className={`sticky top-0 z-30 bg-white/95 backdrop-blur-sm border-b border-slate-200 px-4 py-3 flex items-center gap-3 lg:hidden ${className}`}
+    >
       {showBack && (
         <button
           onClick={() => navigate(-1)}
@@ -29,4 +37,3 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({ title, showBack = false, ri
 };
 
 export default MobileHeader;
-

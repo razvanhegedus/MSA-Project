@@ -78,17 +78,17 @@ const AIChatDrawer: React.FC = () => {
         <button
           onClick={() => setIsOpen(true)}
           aria-label="Open AI Football Concierge"
-          className="fixed bottom-20 right-4 z-40 flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-3.5 text-white shadow-xl hover:bg-emerald-700 active:scale-95 transition-all"
+          className="fixed bottom-20 right-4 lg:bottom-8 lg:right-8 z-40 flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-3.5 text-white shadow-xl hover:bg-emerald-700 active:scale-95 transition-all"
         >
           <Sparkles className="w-5 h-5" />
           <span className="text-sm font-semibold">AI Scout</span>
         </button>
       )}
 
-      {/* Mobile Slide-Up Bottom Sheet */}
+      {/* Slide-Up Bottom Sheet on Mobile, Floating Drawer on Desktop */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/50 backdrop-blur-sm">
-          <div className="max-w-md mx-auto w-full flex h-[82vh] flex-col rounded-t-3xl bg-white shadow-2xl">
+        <div className="fixed inset-0 lg:inset-auto lg:bottom-8 lg:right-8 z-50 flex flex-col justify-end lg:justify-start bg-black/50 lg:bg-transparent backdrop-blur-sm lg:backdrop-blur-none pointer-events-auto">
+          <div className="max-w-md mx-auto w-full flex h-[82vh] lg:h-[620px] lg:w-[420px] flex-col rounded-t-3xl lg:rounded-2xl bg-white shadow-2xl border border-slate-200">
             {/* Drawer Header */}
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 flex-shrink-0">
               <div className="flex items-center gap-2.5">

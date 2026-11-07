@@ -2,6 +2,10 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { Home, Users, User, Sparkles } from 'lucide-react';
 
+interface BottomNavProps {
+  className?: string;
+}
+
 const NAV_ITEMS = [
   { to: '/', icon: Home, label: 'Pitches' },
   { to: '/matches', icon: Users, label: 'Lobbies' },
@@ -9,9 +13,11 @@ const NAV_ITEMS = [
   { to: '/profile', icon: User, label: 'Profile' },
 ] as const;
 
-const BottomNav: React.FC = () => {
+const BottomNav: React.FC<BottomNavProps> = ({ className = '' }) => {
   return (
-    <nav className="fixed bottom-0 max-w-md mx-auto inset-x-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-6 py-3 flex justify-around items-center z-40">
+    <nav
+      className={`fixed bottom-0 max-w-md mx-auto inset-x-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-6 py-3 flex justify-around items-center z-40 lg:hidden ${className}`}
+    >
       {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
         <NavLink
           key={to}
@@ -42,4 +48,3 @@ const BottomNav: React.FC = () => {
 };
 
 export default BottomNav;
-

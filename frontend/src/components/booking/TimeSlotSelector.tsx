@@ -1,20 +1,20 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Users, Lock, CheckCircle2 } from 'lucide-react';
 import { TimeSlot } from '../../types/api';
 
 interface TimeSlotSelectorProps {
   slots: TimeSlot[];
+  selectedSlot?: TimeSlot | null;
   onSelectAvailableSlot: (slot: TimeSlot) => void;
   onSelectOpenLobby: (matchId: string) => void;
 }
 
 const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
   slots,
+  selectedSlot,
   onSelectAvailableSlot,
   onSelectOpenLobby,
 }) => {
-  const [selectedStart, setSelectedStart] = useState<string | null>(null);
-
   const formatHour = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -22,7 +22,7 @@ const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
 
   if (slots.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+      <div className="flex flex-col items-center justify-center py-12 text-slate-400 bg-white rounded-2xl border border-slate-200 p-8">
         <Lock className="w-8 h-8 mb-2 opacity-40" />
         <p className="text-sm font-medium">No slots available for this date</p>
       </div>
@@ -32,22 +32,22 @@ const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
   return (
     <div className="space-y-4">
       {/* Legend */}
-      <div className="flex items-center justify-between text-xs font-medium text-slate-600 bg-slate-100 p-2.5 rounded-xl">
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" /> Available
+      <div className="flex flex-wrap items-center justify-between text-xs font-medium text-slate-600 bg-white border border-slate-200 p-3 rounded-2xl shadow-sm gap-2">
+        <span className="flex items-center gap-1.5 font-semibold text-emerald-800">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shadow-sm" /> Available
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-amber-500 inline-block" /> Open Lobby
+        <span className="flex items-center gap-1.5 font-semibold text-amber-800">
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block shadow-sm" /> Open Lobby (+1)
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-slate-300 inline-block" /> Occupied
+        <span className="flex items-center gap-1.5 font-semibold text-slate-400">
+          <span className="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block" /> Occupied
         </span>
       </div>
 
-      {/* 3-Column Mobile Grid */}
-      <div className="grid grid-cols-3 gap-2.5">
+      {/* Responsive Grid: 3 cols on mobile, 4 on sm/md, 5 on lg, 6 on xl */}
+      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5">
         {slots.map((slot) => {
-          const isSelected = selectedStart === slot.start_time;
+          const isSelected = selectedSlot?.start_time === slot.start_time;
           const timeLabel = `${formatHour(slot.start_time)}–${formatHour(slot.end_time)}`;
 
           if (slot.status === 'OCCUPIED') {
@@ -71,7 +71,7 @@ const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
               <button
                 key={slot.start_time}
                 onClick={() => slot.open_match_id && onSelectOpenLobby(slot.open_match_id)}
-                className="flex flex-col items-center justify-center p-3 rounded-xl bg-amber-50 text-amber-900 border border-amber-300 ring-1 ring-amber-400/40 hover:bg-amber-100/70 active:scale-[0.98] transition cursor-pointer"
+                className="flex flex-col items-center justify-center p-3 rounded-xl bg-amber-50 text-amber-900 border border-amber-300 ring-1 ring-amber-400/40 hover:bg-amber-100/80 active:scale-[0.98] transition cursor-pointer shadow-sm"
                 aria-label={`${timeLabel} – Open Lobby, ${slot.spots_left ?? 0} spots left`}
               >
                 <span className="text-xs font-bold">{timeLabel}</span>
@@ -87,20 +87,17 @@ const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
           return (
             <button
               key={slot.start_time}
-              onClick={() => {
-                setSelectedStart(slot.start_time);
-                onSelectAvailableSlot(slot);
-              }}
-              className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all active:scale-[0.98] cursor-pointer ${
+              onClick={() => onSelectAvailableSlot(slot)}
+              className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all active:scale-[0.98] cursor-pointer shadow-sm ${
                 isSelected
-                  ? 'border-emerald-600 bg-emerald-600 text-white shadow-md'
-                  : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:border-emerald-500 hover:bg-emerald-100/60'
+                  ? 'border-emerald-600 bg-emerald-600 text-white shadow-md ring-2 ring-emerald-500/30'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:border-emerald-500 hover:bg-emerald-100/70'
               }`}
               aria-label={`${timeLabel} – Available, ${slot.price} RON`}
             >
               <span className="text-xs font-bold">{timeLabel}</span>
               <span
-                className={`mt-1 flex items-center gap-1 text-[11px] font-medium ${
+                className={`mt-1 flex items-center gap-1 text-[11px] font-semibold ${
                   isSelected ? 'text-emerald-100' : 'text-emerald-700'
                 }`}
               >
@@ -116,4 +113,3 @@ const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
 };
 
 export default TimeSlotSelector;
-

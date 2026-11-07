@@ -68,7 +68,7 @@ const BookingDrawer: React.FC<BookingDrawerProps> = ({
   if (!isOpen || !slot) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/50 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/50 backdrop-blur-sm lg:hidden" onClick={onClose}>
       <div
         className="max-w-md mx-auto w-full bg-white rounded-t-3xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
