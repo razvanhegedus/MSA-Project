@@ -72,7 +72,8 @@ class TournamentService:
         captain_id: uuid.UUID,
         payload: TournamentTeamRegisterRequest,
     ) -> TournamentTeamResponse:
-        tournament = await self.repo.get_tournament_by_id(tournament_id)
+        # Serialize team registration before reading the current teams and assigning a seed.
+        tournament = await self.repo.get_tournament_by_id(tournament_id, for_update=True)
         if not tournament:
             raise ResourceNotFoundError("Tournament")
 

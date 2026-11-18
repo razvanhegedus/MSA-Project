@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { useNavigate, useLocation, Navigate, type Location } from 'react-router-dom';
 import { Loader2, Eye, EyeOff, AlertCircle, ChevronLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../types/api';
@@ -18,7 +18,7 @@ const RegisterPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fromLocation = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/';
+  const fromLocation = (location.state as { from?: Location })?.from ?? '/';
 
   if (!authLoading && isAuthenticated) {
     return <Navigate to={fromLocation} replace />;
@@ -53,7 +53,7 @@ const RegisterPage: React.FC = () => {
         {/* Back */}
         <button
           type="button"
-          onClick={() => navigate('/login')}
+          onClick={() => navigate('/login', { state: location.state })}
           className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
         >
           <ChevronLeft className="w-4 h-4" /> Back to sign in
@@ -189,7 +189,7 @@ const RegisterPage: React.FC = () => {
             Already have an account?{' '}
             <button
               type="button"
-              onClick={() => navigate('/login')}
+              onClick={() => navigate('/login', { state: location.state })}
               className="font-bold text-emerald-600 hover:text-emerald-700 hover:underline"
             >
               Sign In →

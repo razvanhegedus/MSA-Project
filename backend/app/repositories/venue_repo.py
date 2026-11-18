@@ -16,12 +16,16 @@ class VenueRepository:
         await self.session.flush()
         return venue
 
-    async def get_venue_by_id(self, venue_id: uuid.UUID) -> Optional[Venue]:
+    async def get_venue_by_id(
+        self, venue_id: uuid.UUID, *, for_update: bool = False
+    ) -> Optional[Venue]:
         stmt = (
             select(Venue)
             .options(selectinload(Venue.pitches))
             .where(Venue.id == venue_id)
         )
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 

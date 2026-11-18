@@ -3,6 +3,7 @@ from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional, Literal, List
 from pydantic import BaseModel, Field, ConfigDict, model_validator
+from app.core.booking_rules import validate_booking_interval
 from app.models.enums import BookingStatus, MatchType
 from app.schemas.match import MatchDetailResponse
 
@@ -34,14 +35,14 @@ class BookingCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_time_window(self) -> "BookingCreateRequest":
-        if self.end_time <= self.start_time:
-            raise ValueError("end_time must be strictly greater than start_time")
-        duration_seconds = (self.end_time - self.start_time).total_seconds()
-        if duration_seconds % 3600 != 0:
-            raise ValueError("Bookings must be in exact 1-hour increments")
-        if duration_seconds > 14400:
-            raise ValueError("Maximum single booking duration is 4 hours")
+        self.start_time, self.end_time = validate_booking_interval(self.start_time, self.end_time)
         return self
+
+
+class BookingMoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_time: datetime
 
 
 class BookingResponse(BaseModel):

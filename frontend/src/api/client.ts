@@ -1,97 +1,107 @@
-import axios from 'axios';
+import axios, { type InternalAxiosRequestConfig } from 'axios';
+import type { TokenResponse } from '../types/api';
 
 export const apiClient = axios.create({
   baseURL: '/v1',
   headers: { 'Content-Type': 'application/json' },
 });
 
-// ─── Request Interceptor: Inject Bearer token ─────────────────────────────────
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+const credentialPaths = new Set(['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout']);
+const sessionEndListeners = new Set<() => void>();
+let sessionVersion = 0;
+let pendingRefresh: { version: number; request: Promise<void> } | undefined;
 
-// ─── Response Interceptor: 401 → try refresh → logout ─────────────────────────
-let isRefreshing = false;
-let failedQueue: Array<{
-  resolve: (value: string) => void;
-  reject: (reason: unknown) => void;
-}> = [];
-
-const processQueue = (error: unknown, token: string | null) => {
-  failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error);
-    } else if (token) {
-      prom.resolve(token);
-    }
-  });
-  failedQueue = [];
+type SessionRequest = InternalAxiosRequestConfig & {
+  sessionVersion?: number;
+  retried?: boolean;
 };
 
+export function getAuthSessionVersion() {
+  return sessionVersion;
+}
+
+function storeTokens(tokens: TokenResponse) {
+  localStorage.setItem('access_token', tokens.access_token);
+  localStorage.setItem('refresh_token', tokens.refresh_token);
+}
+
+export function startAuthSession(tokens: TokenResponse) {
+  sessionVersion += 1;
+  storeTokens(tokens);
+  return sessionVersion;
+}
+
+export function endAuthSession() {
+  sessionVersion += 1;
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  sessionEndListeners.forEach((listener) => listener());
+}
+
+export function onAuthSessionEnd(listener: () => void) {
+  sessionEndListeners.add(listener);
+  return () => {
+    sessionEndListeners.delete(listener);
+  };
+}
+
+apiClient.interceptors.request.use((config: SessionRequest) => {
+  const token = localStorage.getItem('access_token');
+  if (token && !credentialPaths.has(config.url ?? '')) {
+    config.sessionVersion = sessionVersion;
+    config.headers.set('Authorization', `Bearer ${token}`);
+  }
+  return config;
+}, undefined, { synchronous: true });
+
+function refreshSession(version: number, refreshToken: string) {
+  if (pendingRefresh?.version === version) return pendingRefresh.request;
+
+  const request = apiClient.post<TokenResponse>('/auth/refresh', { refresh_token: refreshToken })
+    .then(({ data }) => {
+      if (version === sessionVersion) storeTokens(data);
+    })
+    .finally(() => {
+      if (pendingRefresh?.request === request) pendingRefresh = undefined;
+    });
+  pendingRefresh = { version, request };
+  return request;
+}
+
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const request = response.config as SessionRequest;
+    if (request.sessionVersion !== undefined && request.sessionVersion !== sessionVersion) {
+      throw new axios.CanceledError('The signed-in account changed.');
+    }
+    return response;
+  },
   async (error: unknown) => {
-    if (!axios.isAxiosError(error)) return Promise.reject(error);
+    if (!axios.isAxiosError(error) || error.response?.status !== 401) throw error;
 
-    const originalRequest = error.config as typeof error.config & { _retry?: boolean };
+    const request = error.config as SessionRequest | undefined;
+    if (request?.sessionVersion === undefined || request.sessionVersion !== sessionVersion) throw error;
 
-    if (error.response?.status === 401 && !originalRequest?._retry) {
-      if (isRefreshing) {
-        return new Promise<string>((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        }).then((token) => {
-          if (originalRequest) {
-            originalRequest.headers = originalRequest.headers ?? {};
-            originalRequest.headers.Authorization = `Bearer ${token}`;
-          }
-          return apiClient(originalRequest!);
-        });
-      }
-
-      if (originalRequest) {
-        originalRequest._retry = true;
-      }
-      isRefreshing = true;
-
-      const refreshToken = localStorage.getItem('refresh_token');
-      if (!refreshToken) {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        window.location.href = '/login';
-        return Promise.reject(error);
-      }
-
-      try {
-        const { data } = await axios.post<{ access_token: string; refresh_token: string }>(
-          '/v1/auth/refresh',
-          { refresh_token: refreshToken },
-          { headers: { 'Content-Type': 'application/json' } }
-        );
-        localStorage.setItem('access_token', data.access_token);
-        localStorage.setItem('refresh_token', data.refresh_token);
-        processQueue(null, data.access_token);
-
-        if (originalRequest) {
-          originalRequest.headers = originalRequest.headers ?? {};
-          originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
-          return apiClient(originalRequest);
-        }
-      } catch (refreshError) {
-        processQueue(refreshError, null);
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        window.location.href = '/login';
-        return Promise.reject(refreshError);
-      } finally {
-        isRefreshing = false;
-      }
+    const version = request.sessionVersion;
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (!refreshToken || request.retried) {
+      endAuthSession();
+      throw error;
     }
 
-    return Promise.reject(error);
+    request.retried = true;
+    const currentAccessToken = localStorage.getItem('access_token');
+    try {
+      // A concurrent request may already have refreshed the token used by this request.
+      if (request.headers.get('Authorization') === `Bearer ${currentAccessToken}`) {
+        await refreshSession(version, refreshToken);
+      }
+    } catch (refreshError) {
+      if (version === sessionVersion) endAuthSession();
+      throw refreshError;
+    }
+
+    if (version !== sessionVersion) throw new axios.CanceledError('The signed-in account changed.');
+    return apiClient(request);
   }
 );
-

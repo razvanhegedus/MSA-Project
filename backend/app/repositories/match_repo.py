@@ -45,8 +45,16 @@ class MatchRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_match_by_booking_id(self, booking_id: uuid.UUID) -> Optional[Match]:
+    async def get_match_by_booking_id(
+        self, booking_id: uuid.UUID, *, for_update: bool = False
+    ) -> Optional[Match]:
         stmt = select(Match).where(Match.booking_id == booking_id)
+        if for_update:
+            stmt = (
+                stmt.options(selectinload(Match.participants).selectinload(MatchParticipant.user))
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -57,7 +65,10 @@ class MatchRepository:
         target_date: Optional[date] = None,
         match_type: Optional[MatchType] = None,
     ) -> List[Match]:
-        conditions = [Match.status == MatchStatus.OPEN]
+        conditions = [
+            Match.status == MatchStatus.OPEN,
+            Match.scheduled_at > func.now(),
+        ]
 
         if city:
             conditions.append(func.lower(Venue.city) == city.strip().lower())

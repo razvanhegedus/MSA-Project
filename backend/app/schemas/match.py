@@ -19,7 +19,7 @@ class MatchUpdateRequest(BaseModel):
     target_players: Optional[int] = Field(default=None, ge=2, le=22)
     needed_positions: Optional[List[str]] = None
     description: Optional[str] = Field(default=None, max_length=500)
-    spots_needed: Optional[int] = Field(default=None, ge=1, le=21)
+    spots_needed: Optional[int] = Field(default=None, ge=0, le=21)
 
 
 class MatchFilterQuery(BaseModel):

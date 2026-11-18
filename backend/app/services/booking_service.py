@@ -1,15 +1,19 @@
 import uuid
-from datetime import datetime, date, time, timedelta, timezone
+from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal
 from typing import List
 from fastapi import HTTPException, status
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.booking_rules import BookingTimeError, get_venue_booking_window, validate_booking_time
 from app.core.exceptions import SlotAlreadyBookedError, ResourceNotFoundError
-from app.models.base_entities import Booking, Match, MatchParticipant
-from app.models.enums import BookingStatus, MatchStatus, ParticipantRole, ParticipantStatus, TeamSide
+from app.models.base_entities import Booking, Match, MatchParticipant, Pitch, User
+from app.models.enums import (
+    BookingStatus, MatchStatus, ParticipantRole, ParticipantStatus, TeamSide, UserRole
+)
 from app.repositories.booking_repo import BookingRepository
+from app.repositories.match_repo import MatchRepository
 from app.schemas.booking import BookingCreateRequest, BookingResponse, TimeSlotResponse
 from app.schemas.match import MatchDetailResponse, MatchParticipantResponse
 
@@ -26,14 +30,33 @@ class BookingService:
         if not pitch:
             raise ResourceNotFoundError("Pitch")
 
-        venue = pitch.venue
-        day_start = datetime.combine(target_date, time(hour=venue.opening_hour, minute=0), tzinfo=timezone.utc)
-        if venue.closing_hour == 24:
-            day_end = datetime.combine(target_date + timedelta(days=1), time(0, 0), tzinfo=timezone.utc)
-        else:
-            day_end = datetime.combine(target_date, time(hour=venue.closing_hour, minute=0), tzinfo=timezone.utc)
+        return await self._daily_availability(pitch, target_date)
 
-        existing_bookings = await self.repo.get_overlapping_bookings(pitch_id, day_start, day_end)
+    async def get_move_availability(
+        self, booking_id: uuid.UUID, user_id: uuid.UUID, target_date: date
+    ) -> List[TimeSlotResponse]:
+        booking = await self._get_owned_booking(booking_id, user_id)
+        self._require_upcoming(booking)
+        self._require_active_pitch(booking)
+        return await self._daily_availability(
+            booking.pitch, target_date, exclude_booking_id=booking.id
+        )
+
+    async def _daily_availability(
+        self,
+        pitch: Pitch,
+        target_date: date,
+        *,
+        exclude_booking_id: uuid.UUID | None = None,
+    ) -> List[TimeSlotResponse]:
+        venue = pitch.venue
+        day_start, day_end = get_venue_booking_window(
+            target_date, venue.opening_hour, venue.closing_hour
+        )
+
+        existing_bookings = await self.repo.get_overlapping_bookings(
+            pitch.id, day_start, day_end, exclude_booking_id=exclude_booking_id
+        )
 
         now = datetime.now(timezone.utc)
         slots: List[TimeSlotResponse] = []
@@ -41,7 +64,7 @@ class BookingService:
         while cursor < day_end:
             next_hour = cursor + timedelta(hours=1)
             matching_booking = next(
-                (b for b in existing_bookings if b.start_time <= cursor and b.end_time >= next_hour),
+                (b for b in existing_bookings if b.start_time < next_hour and b.end_time > cursor),
                 None,
             )
 
@@ -64,7 +87,13 @@ class BookingService:
                         price=pitch.hourly_rate,
                     )
                 )
-            elif matching_booking.match and matching_booking.match.status == MatchStatus.OPEN:
+            elif (
+                matching_booking.start_time <= cursor
+                and matching_booking.end_time >= next_hour
+                and matching_booking.match
+                and matching_booking.match.status == MatchStatus.OPEN
+                and matching_booking.match.scheduled_at > now
+            ):
                 match = matching_booking.match
                 confirmed_count = sum(
                     1 for p in match.participants if p.status == ParticipantStatus.CONFIRMED
@@ -103,32 +132,12 @@ class BookingService:
 
         venue = pitch.venue
 
-        start_time = payload.start_time
-        if start_time.tzinfo is None:
-            start_time = start_time.replace(tzinfo=timezone.utc)
-        else:
-            start_time = start_time.astimezone(timezone.utc)
-
-        end_time = payload.end_time
-        if end_time.tzinfo is None:
-            end_time = end_time.replace(tzinfo=timezone.utc)
-        else:
-            end_time = end_time.astimezone(timezone.utc)
-
-        if start_time <= datetime.now(timezone.utc):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot book a time slot in the past.",
+        try:
+            start_time, end_time = validate_booking_time(
+                payload.start_time, payload.end_time, venue.opening_hour, venue.closing_hour
             )
-
-        start_hour = start_time.hour
-        end_hour = 24 if (end_time.hour == 0 and end_time.day > start_time.day) else end_time.hour
-
-        if start_hour < venue.opening_hour or end_hour > venue.closing_hour:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Booking outside venue operating hours ({venue.opening_hour}:00 - {venue.closing_hour}:00).",
-            )
+        except BookingTimeError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
         hours = Decimal(str((end_time - start_time).total_seconds() / 3600))
         total_price = (pitch.hourly_rate * hours).quantize(Decimal("0.01"))
@@ -183,6 +192,106 @@ class BookingService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Database integrity error during booking creation.",
             ) from exc
+
+    async def move_booking(
+        self, booking_id: uuid.UUID, user_id: uuid.UUID, requested_start: datetime
+    ) -> BookingResponse:
+        booking = await self._get_owned_booking(booking_id, user_id, for_update=True)
+        self._require_upcoming(booking)
+        self._require_active_pitch(booking)
+        match = await self._lock_linked_match(booking)
+        self._require_upcoming(booking)
+
+        venue = booking.pitch.venue
+        duration = booking.end_time - booking.start_time
+        try:
+            start_time, end_time = validate_booking_time(
+                requested_start, requested_start + duration, venue.opening_hour, venue.closing_hour
+            )
+        except (BookingTimeError, OverflowError) as exc:
+            detail = str(exc) if isinstance(exc, BookingTimeError) else "The requested time is out of range."
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+
+        if start_time == booking.start_time:
+            return self._to_response(booking)
+
+        conflicts = await self.repo.get_overlapping_bookings(
+            booking.pitch_id, start_time, end_time, exclude_booking_id=booking.id
+        )
+        if conflicts:
+            raise SlotAlreadyBookedError()
+
+        booking.start_time = start_time
+        booking.end_time = end_time
+        if match and match.status in (MatchStatus.OPEN, MatchStatus.FULL):
+            match.scheduled_at = start_time
+
+        try:
+            await self.session.commit()
+        except DBAPIError as exc:
+            await self.session.rollback()
+            if (
+                getattr(exc.orig, "sqlstate", None) in ("23P01", "40P01")
+                or "excl_bookings_no_overlap" in str(exc.orig)
+            ):
+                raise SlotAlreadyBookedError() from exc
+            raise
+
+        return self._to_response(booking)
+
+    async def cancel_booking(self, booking_id: uuid.UUID, user_id: uuid.UUID) -> BookingResponse:
+        booking = await self._get_owned_booking(booking_id, user_id, for_update=True)
+        if booking.status == BookingStatus.CANCELLED:
+            return self._to_response(booking)
+
+        self._require_upcoming(booking)
+        match = await self._lock_linked_match(booking)
+        self._require_upcoming(booking)
+        booking.status = BookingStatus.CANCELLED
+        if match:
+            match.status = MatchStatus.CANCELLED
+        await self.session.commit()
+
+        return self._to_response(booking)
+
+    async def _get_owned_booking(
+        self, booking_id: uuid.UUID, user_id: uuid.UUID, *, for_update: bool = False
+    ) -> Booking:
+        booking = await self.repo.get_booking_by_id(booking_id, for_update=for_update)
+        if not booking:
+            raise ResourceNotFoundError("Booking")
+        if booking.booked_by_user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the person who made this reservation can manage it.",
+            )
+        return booking
+
+    async def _lock_linked_match(self, booking: Booking) -> Match | None:
+        if booking.match:
+            return await MatchRepository(self.session).get_match_by_booking_id(
+                booking.id, for_update=True
+            )
+        return None
+
+    @staticmethod
+    def _require_upcoming(booking: Booking) -> None:
+        if booking.status == BookingStatus.CANCELLED:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="This reservation is already cancelled."
+            )
+        if booking.start_time <= datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="This reservation has already started."
+            )
+
+    @staticmethod
+    def _require_active_pitch(booking: Booking) -> None:
+        if not booking.pitch.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This pitch is no longer accepting reservations.",
+            )
 
     def _to_response(self, booking: Booking) -> BookingResponse:
         pitch = booking.pitch
@@ -261,8 +370,15 @@ class BookingService:
         bookings = await self.repo.list_user_bookings(user_id)
         return [self._to_response(b) for b in bookings]
 
-    async def get_booking(self, booking_id: uuid.UUID) -> BookingResponse:
+    async def get_booking(self, booking_id: uuid.UUID, user: User) -> BookingResponse:
         booking = await self.repo.get_booking_by_id(booking_id)
         if not booking:
             raise ResourceNotFoundError("Booking")
+        if user.role != UserRole.ADMIN and user.id not in (
+            booking.booked_by_user_id, booking.pitch.venue.owner_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the booker, venue owner, or admin can view this reservation.",
+            )
         return self._to_response(booking)

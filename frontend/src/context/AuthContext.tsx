@@ -1,5 +1,12 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { apiClient } from '../api/client';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  apiClient,
+  endAuthSession,
+  getAuthSessionVersion,
+  onAuthSessionEnd,
+  startAuthSession,
+} from '../api/client';
 import { UserResponse, LoginPayload, RegisterPayload, TokenResponse } from '../types/api';
 
 interface AuthContextValue {
@@ -8,59 +15,69 @@ interface AuthContextValue {
   isLoading: boolean;
   login: (payload: LoginPayload) => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<UserResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchMe = useCallback(async () => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      setIsLoading(false);
-      return;
-    }
+  const clearPrivateQueries = useCallback(() => {
+    queryClient.removeQueries({ queryKey: ['user-bookings'] });
+    queryClient.removeQueries({ queryKey: ['my-matches'] });
+  }, [queryClient]);
+
+  const fetchMe = useCallback(async (version: number) => {
     try {
       const { data } = await apiClient.get<UserResponse>('/auth/me');
+      if (version !== getAuthSessionVersion()) throw new Error('The signed-in account changed.');
       setUser(data);
-    } catch {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-      setUser(null);
+    } catch (error) {
+      if (version === getAuthSessionVersion()) endAuthSession();
+      throw error;
     } finally {
-      setIsLoading(false);
+      if (version === getAuthSessionVersion()) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void fetchMe();
-  }, [fetchMe]);
+    const unsubscribe = onAuthSessionEnd(() => {
+      clearPrivateQueries();
+      setUser(null);
+      setIsLoading(false);
+    });
+
+    if (localStorage.getItem('access_token')) {
+      void fetchMe(getAuthSessionVersion()).catch(() => undefined);
+    } else {
+      setIsLoading(false);
+    }
+
+    return unsubscribe;
+  }, [clearPrivateQueries, fetchMe]);
 
   const login = useCallback(async (payload: LoginPayload) => {
+    const previousVersion = getAuthSessionVersion();
     const { data } = await apiClient.post<TokenResponse>('/auth/login', payload);
-    localStorage.setItem('access_token', data.access_token);
-    localStorage.setItem('refresh_token', data.refresh_token);
-    await fetchMe();
-  }, [fetchMe]);
+    if (previousVersion !== getAuthSessionVersion()) throw new Error('The signed-in account changed.');
+
+    clearPrivateQueries();
+    await fetchMe(startAuthSession(data));
+  }, [clearPrivateQueries, fetchMe]);
 
   const register = useCallback(async (payload: RegisterPayload) => {
     await apiClient.post('/auth/register', payload);
     await login({ email: payload.email, password: payload.password });
   }, [login]);
 
-  const logout = useCallback(async () => {
+  const logout = useCallback(() => {
     const refreshToken = localStorage.getItem('refresh_token');
-    try {
-      if (refreshToken) {
-        await apiClient.post('/auth/logout', { refresh_token: refreshToken });
-      }
-    } finally {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-      setUser(null);
+    endAuthSession();
+    if (refreshToken) {
+      void apiClient.post('/auth/logout', { refresh_token: refreshToken }).catch(() => undefined);
     }
   }, []);
 
@@ -85,4 +102,3 @@ export const useAuth = (): AuthContextValue => {
   if (!ctx) throw new Error('useAuth must be used inside AuthProvider');
   return ctx;
 };
-

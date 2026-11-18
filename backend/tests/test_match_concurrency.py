@@ -345,6 +345,15 @@ async def test_user_matches_and_update_lobby(
     )
     assert join_resp.status_code == 200
 
+    metadata_edit = await client.patch(
+        f"/api/v1/matches/{match.id}",
+        json={"description": "Updated description"},
+        headers={"Authorization": f"Bearer {org_token}"},
+    )
+    assert metadata_edit.status_code == 200, metadata_edit.text
+    assert metadata_edit.json()["target_players"] == 2
+    assert metadata_edit.json()["status"] == "FULL"
+
     # 3. Player now also sees the match in their /matches/me
     p1_matches_resp = await client.get(
         "/api/v1/matches/me", headers={"Authorization": f"Bearer {p1_token}"}
@@ -393,3 +402,55 @@ async def test_user_matches_and_update_lobby(
     assert my_b["match"] is not None
     assert my_b["open_match_id"] == str(match.id)
     assert my_b["spots_left"] == 3
+
+    close_recruitment = await client.patch(
+        f"/api/v1/matches/{match.id}",
+        json={"spots_needed": 0},
+        headers={"Authorization": f"Bearer {org_token}"},
+    )
+    assert close_recruitment.status_code == 200, close_recruitment.text
+    assert close_recruitment.json()["target_players"] == 2
+    assert close_recruitment.json()["status"] == "FULL"
+
+
+@pytest.mark.asyncio
+async def test_expired_lobbies_cannot_be_discovered_joined_or_created(
+    client: AsyncClient, db_session: AsyncSession, setup_match_with_1_slot_left, setup_5_joiners
+):
+    organizer, _, pitch, booking, match = setup_match_with_1_slot_left
+    _, tokens = setup_5_joiners
+    old_start = datetime.now(timezone.utc) - timedelta(days=2)
+    booking.start_time = old_start
+    booking.end_time = old_start + timedelta(hours=1)
+    match.scheduled_at = booking.start_time
+    past_booking = Booking(
+        pitch_id=pitch.id,
+        booked_by_user_id=organizer.id,
+        start_time=old_start - timedelta(hours=1),
+        end_time=old_start,
+        total_price=Decimal("120.00"),
+        status=BookingStatus.CONFIRMED,
+    )
+    db_session.add(past_booking)
+    await db_session.commit()
+
+    listing = await client.get("/api/v1/matches")
+    assert listing.status_code == 200, listing.text
+    assert all(item["id"] != str(match.id) for item in listing.json())
+
+    joined = await client.post(
+        f"/api/v1/matches/{match.id}/join",
+        json={"team_side": "B", "role": "PLAYER"},
+        headers={"Authorization": f"Bearer {tokens[0]}"},
+    )
+    assert joined.status_code == 409, joined.text
+    assert "already started" in joined.json()["detail"]
+
+    org_token = create_access_token(subject=str(organizer.id))
+    created = await client.post(
+        "/api/v1/matches",
+        json={"booking_id": str(past_booking.id), "match_type": "OPEN_LOBBY", "target_players": 2},
+        headers={"Authorization": f"Bearer {org_token}"},
+    )
+    assert created.status_code == 400, created.text
+    assert "booking has started" in created.json()["detail"]

@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { isAxiosError } from 'axios';
 import {
   User,
   Calendar,
+  CalendarClock,
+  CalendarX,
   LogOut,
   Loader2,
   AlertCircle,
@@ -17,12 +20,16 @@ import {
   X,
 } from 'lucide-react';
 import MobileHeader from '../components/layout/MobileHeader';
+import ManageReservationDialog, { type ReservationAction } from '../components/booking/ManageReservationDialog';
 import { useAuth } from '../context/AuthContext';
 import { useUserBookings } from '../api/bookings';
 import { useMyMatches, useCreateMatchFromBooking, useUpdateMatch } from '../api/matches';
 import { BookingResponse, MatchDetailResponse } from '../types/api';
 
 const POSITION_OPTIONS = ['Goalkeeper', 'Defender', 'Midfielder', 'Forward'];
+const ACTIVITY_CARD_STYLE = 'min-w-0 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-3.5 sm:p-4';
+const ACTION_GRID_STYLE = 'grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))] content-start gap-2';
+const ACTION_BUTTON_STYLE = 'inline-flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl px-2.5 py-2 text-center text-xs font-bold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700';
 
 type ActiveTab = 'BOOKINGS' | 'JOINED_MATCHES' | 'PAST';
 
@@ -33,6 +40,10 @@ const ProfilePage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('BOOKINGS');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [reservationAction, setReservationAction] = useState<{
+    action: ReservationAction;
+    booking: BookingResponse;
+  } | null>(null);
 
   // Modal State for Creating Lobby
   const [lobbyBooking, setLobbyBooking] = useState<BookingResponse | null>(null);
@@ -42,18 +53,18 @@ const ProfilePage: React.FC = () => {
 
   // Modal State for Editing Existing Lobby
   const [editingMatch, setEditingMatch] = useState<MatchDetailResponse | null>(null);
-  const [editSpotsNeeded, setEditSpotsNeeded] = useState<number>(1);
+  const [editSpotsNeeded, setEditSpotsNeeded] = useState<number>(0);
   const [editPositions, setEditPositions] = useState<string[]>([]);
   const [editDescription, setEditDescription] = useState<string>('');
 
   // Queries & Mutations
-  const { data: bookings = [], isLoading: bookingsLoading, isError: bookingsError } = useUserBookings();
-  const { data: myMatches = [], isLoading: matchesLoading } = useMyMatches();
+  const { data: bookings = [], isLoading: bookingsLoading, isError: bookingsError } = useUserBookings(user?.id);
+  const { data: myMatches = [], isLoading: matchesLoading } = useMyMatches(user?.id);
   const createMatch = useCreateMatchFromBooking();
   const updateMatch = useUpdateMatch(editingMatch?.id ?? '');
 
-  const handleLogout = async () => {
-    await logout();
+  const handleLogout = () => {
+    logout();
     navigate('/login');
   };
 
@@ -88,12 +99,14 @@ const ProfilePage: React.FC = () => {
     );
   }
 
+  const now = Date.now();
   const upcomingBookings = bookings.filter(
-    (b) => b.status !== 'CANCELLED' && new Date(b.start_time) > new Date()
+    (b) => b.status !== 'CANCELLED' && Date.parse(b.start_time) > now
   );
-  const pastBookings = bookings.filter(
-    (b) => b.status !== 'CANCELLED' && new Date(b.start_time) <= new Date()
+  const historyBookings = bookings.filter(
+    (b) => b.status === 'CANCELLED' || Date.parse(b.start_time) <= now
   );
+  const playedBookings = historyBookings.filter((b) => b.status !== 'CANCELLED');
 
   const formatBookingTime = (iso: string) =>
     new Date(iso).toLocaleString('en-GB', {
@@ -139,20 +152,25 @@ const ProfilePage: React.FC = () => {
           setSuccessMessage('🎉 Match lobby created! Players can now find and join your game.');
           setTimeout(() => setSuccessMessage(null), 5000);
         },
-        onError: (err: any) => {
-          const msg = err?.response?.data?.detail || err?.message || 'Failed to create match lobby.';
-          setErrorMessage(typeof msg === 'string' ? msg : JSON.stringify(msg));
+        onError: (err) => {
+          const detail = isAxiosError<{ detail?: unknown }>(err) ? err.response?.data?.detail : undefined;
+          setErrorMessage(typeof detail === 'string' ? detail : err.message);
         },
       }
     );
   };
 
+  const editConfirmedCount = editingMatch?.current_players_count ?? 0;
+  const originalEditSpots = editingMatch
+    ? editingMatch.target_players - editConfirmedCount
+    : 0;
+  const minEditSpots = Math.max(0, 2 - editConfirmedCount);
+  const maxEditSpots = 22 - editConfirmedCount;
+
   // Open Edit Lobby Modal
   const handleOpenEditLobby = (match: MatchDetailResponse) => {
     setEditingMatch(match);
-    const confirmedCount = match.current_players_count || 1;
-    const currentSpots = Math.max(1, match.target_players - confirmedCount);
-    setEditSpotsNeeded(currentSpots);
+    setEditSpotsNeeded(match.target_players - match.current_players_count);
     setEditPositions(match.needed_positions || []);
     setEditDescription(match.description || '');
   };
@@ -169,7 +187,7 @@ const ProfilePage: React.FC = () => {
 
     updateMatch.mutate(
       {
-        spots_needed: Number(editSpotsNeeded),
+        ...(editSpotsNeeded !== originalEditSpots ? { spots_needed: editSpotsNeeded } : {}),
         needed_positions: editPositions,
         description: editDescription,
       },
@@ -179,16 +197,16 @@ const ProfilePage: React.FC = () => {
           setSuccessMessage('✅ Lobby updated successfully!');
           setTimeout(() => setSuccessMessage(null), 5000);
         },
-        onError: (err: any) => {
-          const msg = err?.response?.data?.detail || err?.message || 'Failed to update lobby.';
-          setErrorMessage(typeof msg === 'string' ? msg : JSON.stringify(msg));
+        onError: (err) => {
+          const detail = isAxiosError<{ detail?: unknown }>(err) ? err.response?.data?.detail : undefined;
+          setErrorMessage(typeof detail === 'string' ? detail : err.message);
         },
       }
     );
   };
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full min-w-0 space-y-6 pb-28 lg:pb-16">
       <MobileHeader title="My Profile" />
 
       {/* Alert Notifications */}
@@ -207,7 +225,7 @@ const ProfilePage: React.FC = () => {
       )}
 
       {successMessage && (
-        <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-300 rounded-2xl p-4 text-sm font-semibold text-emerald-900 shadow-sm animate-in fade-in slide-in-from-top-2">
+        <div role="status" className="flex items-center gap-3 bg-emerald-50 border border-emerald-300 rounded-2xl p-4 text-sm font-semibold text-emerald-900 shadow-sm animate-in fade-in slide-in-from-top-2">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
           <span>{successMessage}</span>
           <button
@@ -220,19 +238,17 @@ const ProfilePage: React.FC = () => {
         </div>
       )}
 
-      {/* Responsive 12-Column Grid on Desktop */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: User Card & Account Stats */}
-        <div className="lg:col-span-4 space-y-4">
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+      <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(15rem,1fr)_minmax(0,2fr)] lg:gap-6 xl:grid-cols-[minmax(17rem,19rem)_minmax(0,1fr)]">
+        <div className="min-w-0">
+          <div className="min-w-0 space-y-4 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-5">
             <div className="flex items-center gap-3.5">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-600 to-emerald-400 flex items-center justify-center text-white font-black text-xl shadow-md shadow-emerald-500/20">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-emerald-600 to-emerald-400 text-xl font-black text-white shadow-md shadow-emerald-500/20">
                 {user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}
               </div>
               <div className="min-w-0 flex-1">
                 <h2 className="text-base font-bold text-slate-900 truncate">{user?.full_name}</h2>
                 <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5 truncate">
-                  <Mail className="w-3 h-3 text-slate-400" />
+                  <Mail className="h-3 w-3 shrink-0 text-slate-400" />
                   <span className="truncate">{user?.email}</span>
                 </div>
                 <span className="inline-block mt-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
@@ -249,28 +265,28 @@ const ProfilePage: React.FC = () => {
             )}
 
             <div className="pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 text-center">
-              <div className="p-2.5 bg-slate-50 rounded-xl">
+              <div className="min-w-0 rounded-xl bg-slate-50 px-1 py-2.5 tabular-nums">
                 <p className="text-lg font-black text-slate-900">{upcomingBookings.length}</p>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
                   Bookings
                 </p>
               </div>
-              <div className="p-2.5 bg-slate-50 rounded-xl">
+              <div className="min-w-0 rounded-xl bg-slate-50 px-1 py-2.5 tabular-nums">
                 <p className="text-lg font-black text-emerald-600">{myMatches.length}</p>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
                   Lobbies
                 </p>
               </div>
-              <div className="p-2.5 bg-slate-50 rounded-xl">
-                <p className="text-lg font-black text-slate-900">{pastBookings.length}</p>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <div className="min-w-0 rounded-xl bg-slate-50 px-1 py-2.5 tabular-nums">
+                <p className="text-lg font-black text-slate-900">{playedBookings.length}</p>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
                   Played
                 </p>
               </div>
             </div>
 
             <button
-              onClick={() => void handleLogout()}
+              onClick={handleLogout}
               className="w-full h-11 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
               <LogOut className="w-4 h-4" /> Sign Out
@@ -278,57 +294,67 @@ const ProfilePage: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column: Interactive Tabs & Activity Lists */}
-        <div className="lg:col-span-8 space-y-6">
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-6">
-            {/* Header with Switcher Tabs */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+        <div className="min-w-0">
+          <div className="min-w-0 space-y-4 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-5">
+            <div className="min-w-0 space-y-3 border-b border-slate-100 pb-4">
               <div>
                 <h1 className="text-lg font-black text-slate-900 tracking-tight">
                   My Activity & Schedule
                 </h1>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="mt-0.5 break-words text-xs text-slate-500">
                   Manage your pitch reservations, modify match lobbies, and track your teams.
                 </p>
               </div>
 
               {/* Navigation Tabs */}
-              <div className="flex items-center bg-slate-100 p-1 rounded-xl gap-1">
+              <div role="group" aria-label="Activity views" className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
                 <button
                   type="button"
                   onClick={() => setActiveTab('BOOKINGS')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  aria-pressed={activeTab === 'BOOKINGS'}
+                  className={`flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-center text-xs font-bold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-slate-700 lg:flex-row lg:gap-1.5 ${
                     activeTab === 'BOOKINGS'
                       ? 'bg-white text-slate-900 shadow-sm'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Upcoming ({upcomingBookings.length})</span>
+                  <span className="inline-flex items-center justify-center gap-1.5">
+                    <Calendar className="hidden h-3.5 w-3.5 shrink-0 text-emerald-600 min-[390px]:block" />
+                    Upcoming
+                  </span>
+                  <span className="text-[11px] tabular-nums text-slate-500">({upcomingBookings.length})</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveTab('JOINED_MATCHES')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  aria-pressed={activeTab === 'JOINED_MATCHES'}
+                  className={`flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-center text-xs font-bold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-slate-700 lg:flex-row lg:gap-1.5 ${
                     activeTab === 'JOINED_MATCHES'
                       ? 'bg-white text-slate-900 shadow-sm'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <Users className="w-3.5 h-3.5 text-amber-600" />
-                  <span>My Matches ({myMatches.length})</span>
+                  <span className="inline-flex items-center justify-center gap-1.5">
+                    <Users className="hidden h-3.5 w-3.5 shrink-0 text-amber-600 min-[390px]:block" />
+                    My Matches
+                  </span>
+                  <span className="text-[11px] tabular-nums text-slate-500">({myMatches.length})</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveTab('PAST')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  aria-pressed={activeTab === 'PAST'}
+                  className={`flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-center text-xs font-bold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-slate-700 lg:flex-row lg:gap-1.5 ${
                     activeTab === 'PAST'
                       ? 'bg-white text-slate-900 shadow-sm'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
-                  <span>History ({pastBookings.length})</span>
+                  <span className="inline-flex items-center justify-center gap-1.5">
+                    <ShieldCheck className="hidden h-3.5 w-3.5 shrink-0 text-slate-500 min-[390px]:block" />
+                    History
+                  </span>
+                  <span className="text-[11px] tabular-nums text-slate-500">({historyBookings.length})</span>
                 </button>
               </div>
             </div>
@@ -369,18 +395,18 @@ const ProfilePage: React.FC = () => {
                       return (
                         <div
                           key={b.id}
-                          className="bg-slate-50/90 border border-slate-200 rounded-2xl p-4 hover:border-emerald-300 transition-all space-y-3 shadow-xs"
+                          className={ACTIVITY_CARD_STYLE}
                         >
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div className="flex items-start gap-3">
-                              <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center flex-shrink-0 font-bold text-sm shadow-xs">
+                          <div className="flex min-w-0 flex-wrap items-start justify-between gap-2.5">
+                            <div className="flex min-w-0 items-start gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-sm font-bold text-emerald-700">
                                 ⚽
                               </div>
-                              <div>
-                                <h3 className="text-sm font-bold text-slate-900 leading-tight">
+                              <div className="min-w-0">
+                                <h3 className="break-words text-sm font-bold leading-tight text-slate-900">
                                   {b.pitch_name || 'Football Pitch'}
                                 </h3>
-                                <p className="text-xs text-slate-500 mt-0.5">
+                                <p className="mt-0.5 break-words text-xs text-slate-500">
                                   {b.venue_name || 'Arena'} {b.city ? `· ${b.city}` : ''}
                                 </p>
                               </div>
@@ -401,61 +427,73 @@ const ProfilePage: React.FC = () => {
                             </div>
                           </div>
 
-                          {/* Time & Price metadata */}
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 py-2 px-3 bg-white rounded-xl border border-slate-100 text-xs">
-                            <div>
-                              <span className="text-[10px] text-slate-400 uppercase font-bold block">
-                                Time Slot
-                              </span>
-                              <span className="font-semibold text-slate-800">
-                                {formatBookingTime(b.start_time)}
-                              </span>
+                          <dl className="grid grid-cols-2 gap-x-3 gap-y-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs min-[390px]:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                            <div className="col-span-2 min-w-0 min-[390px]:col-span-1">
+                              <dt className="text-[10px] font-bold uppercase text-slate-600">Time Slot</dt>
+                              <dd className="mt-0.5 font-semibold text-slate-800">
+                                <time dateTime={b.start_time}>{formatBookingTime(b.start_time)}</time>
+                              </dd>
                             </div>
-                            <div>
-                              <span className="text-[10px] text-slate-400 uppercase font-bold block">
-                                Total Price
-                              </span>
-                              <span className="font-semibold text-slate-800">{b.total_price} RON</span>
+                            <div className="min-w-0">
+                              <dt className="text-[10px] font-bold uppercase text-slate-600">Total Price</dt>
+                              <dd className="mt-0.5 font-semibold tabular-nums text-slate-800">{b.total_price} RON</dd>
                             </div>
-                            <div>
-                              <span className="text-[10px] text-slate-400 uppercase font-bold block">
-                                Status
-                              </span>
-                              <span className="font-bold text-emerald-600">{b.status}</span>
+                            <div className="min-w-0">
+                              <dt className="text-[10px] font-bold uppercase text-slate-600">Status</dt>
+                              <dd className="mt-0.5 font-bold capitalize text-emerald-700">{b.status.toLowerCase()}</dd>
                             </div>
-                          </div>
+                          </dl>
 
-                          {/* Actions Bar */}
-                          <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-                            {!hasLobby ? (
+                          <div className="grid min-w-0 gap-2 border-t border-slate-200 pt-3 lg:grid-cols-2">
+                            <div role="group" aria-label="Reservation actions" className={ACTION_GRID_STYLE}>
                               <button
                                 type="button"
-                                onClick={() => handleOpenCreateLobby(b)}
-                                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                                onClick={() => setReservationAction({ action: 'move', booking: b })}
+                                className={`${ACTION_BUTTON_STYLE} border border-slate-300 bg-white text-slate-800 hover:bg-slate-100`}
                               >
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>Need Players (+1)</span>
+                                <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+                                Move to another slot
                               </button>
-                            ) : (
-                              <>
+                              <button
+                                type="button"
+                                onClick={() => setReservationAction({ action: 'cancel', booking: b })}
+                                className={`${ACTION_BUTTON_STYLE} border border-red-200 bg-white text-red-700 hover:bg-red-50`}
+                              >
+                                <CalendarX className="h-3.5 w-3.5 shrink-0" />
+                                Cancel reservation
+                              </button>
+                            </div>
+                            <div role="group" aria-label="Lobby actions" className={ACTION_GRID_STYLE}>
+                              {!hasLobby ? (
                                 <button
                                   type="button"
-                                  onClick={() => b.match && handleOpenEditLobby(b.match)}
-                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs transition-colors cursor-pointer"
+                                  onClick={() => handleOpenCreateLobby(b)}
+                                  className={`${ACTION_BUTTON_STYLE} border border-amber-200 bg-amber-100 text-amber-900 hover:bg-amber-200`}
                                 >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                  <span>Edit Needed Players (+{spotsNeeded})</span>
+                                  <Plus className="h-3.5 w-3.5 shrink-0" />
+                                  <span>Need Players (+1)</span>
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => navigate(`/matches?highlight=${b.open_match_id}`)}
-                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer"
-                                >
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                  <span>View Lobby</span>
-                                </button>
-                              </>
-                            )}
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => b.match && handleOpenEditLobby(b.match)}
+                                    className={`${ACTION_BUTTON_STYLE} border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100`}
+                                  >
+                                    <Edit3 className="h-3.5 w-3.5 shrink-0" />
+                                    <span>Edit Needed Players (+{spotsNeeded})</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/matches?highlight=${b.open_match_id}`)}
+                                    className={`${ACTION_BUTTON_STYLE} bg-slate-900 text-white hover:bg-slate-800`}
+                                  >
+                                    <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                                    <span>View Lobby</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
@@ -496,12 +534,12 @@ const ProfilePage: React.FC = () => {
                       return (
                         <div
                           key={m.id}
-                          className="bg-white border border-slate-200 rounded-2xl p-4 hover:border-emerald-300 transition-all space-y-3 shadow-xs"
+                          className={ACTIVITY_CARD_STYLE}
                         >
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex min-w-0 flex-wrap items-start justify-between gap-2.5">
                             <div>
-                              <div className="flex items-center gap-2">
-                                <h3 className="text-sm font-bold text-slate-900 leading-tight">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className="break-words text-sm font-bold leading-tight text-slate-900">
                                   {m.pitch_name || 'Pitch Lobby'}
                                 </h3>
                                 <span
@@ -514,7 +552,7 @@ const ProfilePage: React.FC = () => {
                                   {m.status}
                                 </span>
                               </div>
-                              <p className="text-xs text-slate-500 mt-0.5">
+                              <p className="mt-0.5 break-words text-xs text-slate-500">
                                 {m.venue_name} {m.city ? `· ${m.city}` : ''}
                               </p>
                             </div>
@@ -535,8 +573,8 @@ const ProfilePage: React.FC = () => {
                           )}
 
                           {/* My Role / Team side metadata */}
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-2 border-t border-slate-100">
-                            <div className="flex items-center gap-3 text-slate-600">
+                          <div className="grid gap-2.5 border-t border-slate-200 pt-3 text-xs">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-slate-600">
                               <span>
                                 <strong>Date:</strong> {formatBookingTime(m.scheduled_at)}
                               </span>
@@ -547,24 +585,24 @@ const ProfilePage: React.FC = () => {
                               )}
                             </div>
 
-                            <div className="flex items-center gap-2">
+                            <div role="group" aria-label="Lobby actions" className={ACTION_GRID_STYLE}>
                               {isOrganizer && (
                                 <button
                                   type="button"
                                   onClick={() => handleOpenEditLobby(m)}
-                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs transition-colors cursor-pointer"
+                                  className={`${ACTION_BUTTON_STYLE} border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100`}
                                 >
-                                  <Edit3 className="w-3 h-3" />
+                                  <Edit3 className="h-3.5 w-3.5 shrink-0" />
                                   <span>Edit Players</span>
                                 </button>
                               )}
                               <button
                                 type="button"
                                 onClick={() => navigate(`/matches?highlight=${m.id}`)}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer"
+                                className={`${ACTION_BUTTON_STYLE} bg-slate-900 text-white hover:bg-slate-800`}
                               >
-                                <ExternalLink className="w-3.5 h-3.5" />
-                                <span>View in Open Matches</span>
+                                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                                <span>View Lobby</span>
                               </button>
                             </div>
                           </div>
@@ -579,29 +617,36 @@ const ProfilePage: React.FC = () => {
             {/* TAB 3: Past History */}
             {activeTab === 'PAST' && (
               <section className="space-y-3">
-                {pastBookings.length === 0 ? (
+                {historyBookings.length === 0 ? (
                   <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400 text-xs">
-                    No past matches recorded.
+                    No past or cancelled reservations.
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {pastBookings.map((b) => (
+                    {historyBookings.map((b) => (
                       <div
                         key={b.id}
-                        className="flex items-center gap-3 bg-slate-50/70 border border-slate-100 rounded-xl p-3 opacity-80"
+                        className="flex min-w-0 items-start gap-2.5 rounded-2xl border border-slate-200 bg-slate-50 p-3.5 sm:gap-3 sm:p-4"
                       >
                         <div className="w-9 h-9 rounded-lg bg-slate-200 flex items-center justify-center flex-shrink-0 text-slate-600 font-bold text-xs">
                           <Calendar className="w-4 h-4" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-slate-800 truncate">
+                          <p className="break-words text-xs font-bold text-slate-800">
                             {b.pitch_name || 'Pitch'} · {b.venue_name || 'Venue'}
                           </p>
                           <p className="text-[11px] text-slate-500 mt-0.5">
-                            {formatBookingTime(b.start_time)} · {b.total_price} RON
+                            {formatBookingTime(b.start_time)}
+                            {b.status !== 'CANCELLED' && ` · ${b.total_price} RON`}
                           </p>
                         </div>
-                        <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                        {b.status === 'CANCELLED' ? (
+                          <span className="shrink-0 rounded-full bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-700">
+                            Cancelled
+                          </span>
+                        ) : (
+                          <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600" />
+                        )}
                       </div>
                     ))}
                   </div>
@@ -611,6 +656,20 @@ const ProfilePage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {reservationAction && (
+        <ManageReservationDialog
+          action={reservationAction.action}
+          booking={reservationAction.booking}
+          onClose={() => setReservationAction(null)}
+          onSuccess={() => {
+            setErrorMessage(null);
+            setSuccessMessage(reservationAction.action === 'move'
+              ? 'Reservation moved.'
+              : 'Reservation cancelled. You can find it in History.');
+          }}
+        />
+      )}
 
       {/* ─── Modal 1: Open New Match Lobby from Booking ─── */}
       {lobbyBooking && (
@@ -782,7 +841,8 @@ const ProfilePage: React.FC = () => {
                       key={num}
                       type="button"
                       onClick={() => setEditSpotsNeeded(num)}
-                      className={`py-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                      disabled={num < minEditSpots || num > maxEditSpots}
+                      className={`py-2 rounded-xl text-xs font-black border transition-all cursor-pointer disabled:opacity-50 ${
                         editSpotsNeeded === num
                           ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
                           : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
@@ -796,14 +856,17 @@ const ProfilePage: React.FC = () => {
                   <span className="text-xs text-slate-500">Or custom amount:</span>
                   <input
                     type="number"
-                    min={0}
-                    max={20}
+                    min={minEditSpots}
+                    max={maxEditSpots}
                     value={editSpotsNeeded}
-                    onChange={(e) => setEditSpotsNeeded(Math.max(0, Number(e.target.value)))}
+                    onChange={(e) => {
+                      const value = e.target.valueAsNumber;
+                      setEditSpotsNeeded(Number.isNaN(value) ? minEditSpots : Math.trunc(value));
+                    }}
                     className="w-20 px-3 py-1 text-xs font-bold border border-slate-200 rounded-lg text-center"
                   />
                   <span className="text-xs text-slate-400 font-medium">
-                    (Total target players will be: {(editingMatch.current_players_count || 1) + Number(editSpotsNeeded)})
+                    (Total target players will be: {editConfirmedCount + editSpotsNeeded})
                   </span>
                 </div>
               </div>
@@ -857,7 +920,7 @@ const ProfilePage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleConfirmUpdateLobby}
-                disabled={updateMatch.isPending}
+                disabled={updateMatch.isPending || editSpotsNeeded < minEditSpots || editSpotsNeeded > maxEditSpots}
                 className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 {updateMatch.isPending ? (

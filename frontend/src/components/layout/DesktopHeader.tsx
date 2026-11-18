@@ -39,9 +39,9 @@ const DesktopHeader: React.FC<DesktopHeaderProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     setUserMenuOpen(false);
-    await logout();
+    logout();
     navigate('/login');
   };
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { useNavigate, useLocation, Navigate, type Location } from 'react-router-dom';
 import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -15,7 +15,7 @@ const LoginPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Where to navigate after login
-  const fromLocation = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/';
+  const fromLocation = (location.state as { from?: Location })?.from ?? '/';
 
   // If already logged in, redirect away from login page
   if (!authLoading && isAuthenticated) {
@@ -126,7 +126,7 @@ const LoginPage: React.FC = () => {
             Don&apos;t have an account yet?{' '}
             <button
               type="button"
-              onClick={() => navigate('/register')}
+              onClick={() => navigate('/register', { state: location.state })}
               className="font-bold text-emerald-600 hover:text-emerald-700 hover:underline"
             >
               Create Account →

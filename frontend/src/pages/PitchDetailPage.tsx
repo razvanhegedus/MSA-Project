@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { isAxiosError } from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Loader2,
@@ -151,11 +152,12 @@ const PitchDetailPage: React.FC = () => {
         setSuccessMessage('🎉 You have successfully joined the match squad!');
         setTimeout(() => setSuccessMessage(null), 4000);
       },
-      onError: (err: any) => {
+      onError: (error) => {
         setJoiningMatchId(null);
-        const msg =
-          err?.response?.data?.detail || err?.message || 'Failed to join match lobby.';
-        setErrorMessage(typeof msg === 'string' ? msg : JSON.stringify(msg));
+        const detail = isAxiosError<{ detail?: unknown }>(error)
+          ? error.response?.data?.detail
+          : undefined;
+        setErrorMessage(typeof detail === 'string' ? detail : 'Failed to join match lobby.');
       },
     });
   };

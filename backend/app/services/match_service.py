@@ -1,5 +1,5 @@
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
@@ -28,7 +28,7 @@ class MatchService:
     async def create_match(
         self, user_id: uuid.UUID, payload: MatchCreateRequest
     ) -> MatchDetailResponse:
-        booking = await self.booking_repo.get_booking_by_id(payload.booking_id)
+        booking = await self.booking_repo.get_booking_by_id(payload.booking_id, for_update=True)
         if not booking:
             raise ResourceNotFoundError("Booking")
 
@@ -42,6 +42,12 @@ class MatchService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot create a match for a non-confirmed booking.",
+            )
+
+        if booking.start_time <= datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot create a match lobby after the booking has started.",
             )
 
         existing_match = await self.repo.get_match_by_booking_id(payload.booking_id)
@@ -83,6 +89,8 @@ class MatchService:
         if not match:
             raise ResourceNotFoundError("Match")
 
+        if match.scheduled_at <= datetime.now(timezone.utc):
+            raise LobbyFullError("Cannot join a match that has already started.")
         if match.status != MatchStatus.OPEN:
             raise LobbyFullError(f"Cannot join match with status {match.status.value}.")
 
@@ -154,6 +162,11 @@ class MatchService:
 
         if payload.spots_needed is not None:
             new_target = confirmed_count + payload.spots_needed
+            if new_target < 2:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Total target players must be at least 2.",
+                )
             if new_target > 22:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -174,11 +187,8 @@ class MatchService:
         if payload.description is not None:
             match.description = payload.description
 
-        if confirmed_count < match.target_players:
-            if match.status == MatchStatus.FULL:
-                match.status = MatchStatus.OPEN
-        else:
-            match.status = MatchStatus.FULL
+        if match.status in (MatchStatus.OPEN, MatchStatus.FULL):
+            match.status = MatchStatus.OPEN if confirmed_count < match.target_players else MatchStatus.FULL
 
         await self.session.commit()
         self.session.expire_all()

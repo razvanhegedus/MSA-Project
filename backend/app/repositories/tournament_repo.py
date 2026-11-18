@@ -17,12 +17,16 @@ class TournamentRepository:
         await self.session.flush()
         return tournament
 
-    async def get_tournament_by_id(self, tournament_id: uuid.UUID) -> Optional[Tournament]:
+    async def get_tournament_by_id(
+        self, tournament_id: uuid.UUID, *, for_update: bool = False
+    ) -> Optional[Tournament]:
         stmt = (
             select(Tournament)
             .options(selectinload(Tournament.teams))
             .where(Tournament.id == tournament_id)
         )
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 

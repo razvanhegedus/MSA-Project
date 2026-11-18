@@ -23,7 +23,12 @@ class BookingRepository:
         return result.scalar_one_or_none()
 
     async def get_overlapping_bookings(
-        self, pitch_id: uuid.UUID, window_start: datetime, window_end: datetime
+        self,
+        pitch_id: uuid.UUID,
+        window_start: datetime,
+        window_end: datetime,
+        *,
+        exclude_booking_id: Optional[uuid.UUID] = None,
     ) -> List[Booking]:
         """
         Uses PostgreSQL tstzrange overlap operator (&&) to fetch all active bookings
@@ -44,6 +49,8 @@ class BookingRepository:
             )
             .order_by(Booking.start_time.asc())
         )
+        if exclude_booking_id is not None:
+            stmt = stmt.where(Booking.id != exclude_booking_id)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -52,7 +59,9 @@ class BookingRepository:
         await self.session.flush()
         return booking
 
-    async def get_booking_by_id(self, booking_id: uuid.UUID) -> Optional[Booking]:
+    async def get_booking_by_id(
+        self, booking_id: uuid.UUID, *, for_update: bool = False
+    ) -> Optional[Booking]:
         stmt = (
             select(Booking)
             .options(
@@ -61,6 +70,8 @@ class BookingRepository:
             )
             .where(Booking.id == booking_id)
         )
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 

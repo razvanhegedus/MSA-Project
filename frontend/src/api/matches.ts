@@ -8,12 +8,14 @@ import {
   MatchUpdatePayload,
 } from '../types/api';
 
-export const useOpenMatches = (city?: string, status = 'OPEN') => {
+export const useOpenMatches = (city?: string, enabled = true) => {
   return useQuery<MatchResponse[]>({
-    queryKey: ['open-matches', city, status],
-    queryFn: async () => {
+    queryKey: ['open-matches', city],
+    enabled,
+    queryFn: async ({ signal }) => {
       const { data } = await apiClient.get<MatchResponse[]>('/matches', {
-        params: { status, ...(city ? { city } : {}) },
+        params: { city },
+        signal,
       });
       return data;
     },
@@ -25,8 +27,8 @@ export const useOpenMatches = (city?: string, status = 'OPEN') => {
 export const useMatchDetail = (matchId: string) => {
   return useQuery<MatchDetailResponse>({
     queryKey: ['match-detail', matchId],
-    queryFn: async () => {
-      const { data } = await apiClient.get<MatchDetailResponse>(`/matches/${matchId}`);
+    queryFn: async ({ signal }) => {
+      const { data } = await apiClient.get<MatchDetailResponse>(`/matches/${matchId}`, { signal });
       return data;
     },
     enabled: Boolean(matchId),
@@ -49,15 +51,17 @@ export const useJoinMatch = (matchId: string) => {
       void queryClient.invalidateQueries({ queryKey: ['match-detail', matchId] });
       void queryClient.invalidateQueries({ queryKey: ['pitch-availability'] });
       void queryClient.invalidateQueries({ queryKey: ['user-bookings'] });
+      void queryClient.invalidateQueries({ queryKey: ['my-matches'] });
     },
   });
 };
 
-export const useMyMatches = () => {
+export const useMyMatches = (userId: string | undefined) => {
   return useQuery<MatchDetailResponse[]>({
-    queryKey: ['my-matches'],
-    queryFn: async () => {
-      const { data } = await apiClient.get<MatchDetailResponse[]>('/matches/me');
+    queryKey: ['my-matches', userId],
+    enabled: Boolean(userId),
+    queryFn: async ({ signal }) => {
+      const { data } = await apiClient.get<MatchDetailResponse[]>('/matches/me', { signal });
       return data;
     },
     staleTime: 15_000,

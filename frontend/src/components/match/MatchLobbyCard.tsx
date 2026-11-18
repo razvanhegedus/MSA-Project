@@ -6,12 +6,14 @@ interface MatchLobbyCardProps {
   match: MatchResponse;
   onJoin: (matchId: string) => void;
   isCurrentUserOrganizer?: boolean;
+  isCurrentUserParticipant?: boolean;
 }
 
 const MatchLobbyCard: React.FC<MatchLobbyCardProps> = ({
   match,
   onJoin,
   isCurrentUserOrganizer = false,
+  isCurrentUserParticipant = false,
 }) => {
   const spotsLeft = match.target_players - match.current_players_count;
   const fillPercent = Math.min(
@@ -30,6 +32,17 @@ const MatchLobbyCard: React.FC<MatchLobbyCardProps> = ({
     });
 
   const isFull = match.status === 'FULL' || spotsLeft <= 0;
+  const statusLabel = match.status === 'CANCELLED' || match.status === 'COMPLETED'
+    ? match.status
+    : Date.parse(match.scheduled_at) <= Date.now()
+      ? 'STARTED'
+      : isFull ? 'FULL' : null;
+  const joinDisabled = Boolean(statusLabel) || isCurrentUserOrganizer || isCurrentUserParticipant;
+  const joinLabel = isCurrentUserOrganizer
+    ? 'Your Lobby'
+    : isCurrentUserParticipant
+      ? 'Already Joined'
+      : statusLabel === 'FULL' ? 'Lobby Full' : statusLabel ?? '+ Join Match';
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
@@ -44,12 +57,12 @@ const MatchLobbyCard: React.FC<MatchLobbyCardProps> = ({
             )}
             <span
               className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                isFull
+                statusLabel
                   ? 'bg-slate-100 text-slate-500'
                   : 'bg-amber-100 text-amber-700'
               }`}
             >
-              {isFull ? 'FULL' : `${spotsLeft} SPOT${spotsLeft !== 1 ? 'S' : ''} LEFT`}
+              {statusLabel ?? `${spotsLeft} SPOT${spotsLeft !== 1 ? 'S' : ''} LEFT`}
             </span>
           </div>
           <h3 className="text-sm font-bold text-slate-900 truncate">
@@ -111,14 +124,14 @@ const MatchLobbyCard: React.FC<MatchLobbyCardProps> = ({
       {/* Join Button */}
       <button
         onClick={() => onJoin(match.id)}
-        disabled={isFull || isCurrentUserOrganizer}
+        disabled={joinDisabled}
         className={`w-full h-11 rounded-xl font-bold text-sm transition-all active:scale-[0.98] ${
-          isFull || isCurrentUserOrganizer
+          joinDisabled
             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
             : 'bg-slate-900 text-white hover:bg-slate-800 shadow-sm'
         }`}
       >
-        {isCurrentUserOrganizer ? 'Your Lobby' : isFull ? 'Lobby Full' : '+ Join Match'}
+        {joinLabel}
       </button>
     </div>
   );

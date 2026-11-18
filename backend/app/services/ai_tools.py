@@ -9,7 +9,7 @@ Implements pure Python callables that integrate with repository/service layers:
 """
 
 import uuid
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -17,6 +17,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.booking_rules import BookingTimeError, validate_booking_time
 from app.models.base_entities import Booking, Pitch, Venue
 from app.models.enums import BookingStatus, ParticipantRole, SurfaceType
 from app.repositories.booking_repo import BookingRepository
@@ -76,7 +77,7 @@ AI_TOOLS_DEFINITIONS: List[Dict[str, Any]] = [
             "name": "check_slot_availability",
             "description": (
                 "Check full-day hourly slot availability for a specific pitch on a given date. "
-                "Returns availability matrix with status AVAILABLE, OPEN_LOBBY, or OCCUPIED."
+                "Returns availability matrix with status AVAILABLE, OPEN_LOBBY, OCCUPIED, or PAST."
             ),
             "parameters": {
                 "type": "object",
@@ -283,38 +284,15 @@ class AITools:
 
         venue = pitch.venue
 
-        # Ensure UTC timezone awareness
-        st = validated_args.start_time
-        if st.tzinfo is None:
-            st = st.replace(tzinfo=timezone.utc)
-        else:
-            st = st.astimezone(timezone.utc)
-
-        et = validated_args.end_time
-        if et.tzinfo is None:
-            et = et.replace(tzinfo=timezone.utc)
-        else:
-            et = et.astimezone(timezone.utc)
-
-        if et <= st:
-            return {
-                "is_available": False,
-                "status": "INVALID_TIME_RANGE",
-                "message": "End time must be strictly after start time.",
-            }
-
-        start_hour = st.hour
-        end_hour = 24 if (et.hour == 0 and et.day > st.day) else et.hour
-
-        if start_hour < venue.opening_hour or end_hour > venue.closing_hour:
-            return {
-                "is_available": False,
-                "status": "OUTSIDE_OPERATING_HOURS",
-                "message": (
-                    f"Booking outside venue operating hours "
-                    f"({venue.opening_hour}:00 - {venue.closing_hour}:00)."
-                ),
-            }
+        try:
+            st, et = validate_booking_time(
+                validated_args.start_time,
+                validated_args.end_time,
+                venue.opening_hour,
+                venue.closing_hour,
+            )
+        except BookingTimeError as exc:
+            return {"is_available": False, "status": exc.code, "message": str(exc)}
 
         # Check overlapping non-cancelled bookings using [) range overlap
         overlapping = await self.booking_repo.get_overlapping_bookings(

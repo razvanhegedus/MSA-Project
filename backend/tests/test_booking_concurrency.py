@@ -422,3 +422,110 @@ async def test_past_slot_availability_and_booking_rejection(
     )
     assert booking_resp.status_code == 400
     assert "Cannot book a time slot in the past." in booking_resp.json()["detail"]
+
+@pytest.mark.asyncio
+async def test_availability_marks_partial_bookings_occupied(
+    client: AsyncClient, setup_venue_and_pitch, setup_10_players
+):
+    _, _, pitch = setup_venue_and_pitch
+    _, tokens = setup_10_players
+    target_date = datetime.now(timezone.utc).date() + timedelta(days=2)
+    start = datetime.combine(target_date, time(18, 30), tzinfo=timezone.utc)
+
+    booking = await client.post(
+        "/api/v1/bookings",
+        json={
+            "pitch_id": str(pitch.id),
+            "start_time": start.isoformat(),
+            "end_time": (start + timedelta(hours=1)).isoformat(),
+        },
+        headers={"Authorization": f"Bearer {tokens[0]}"},
+    )
+    assert booking.status_code == 201, booking.text
+
+    availability = await client.get(
+        f"/api/v1/pitches/{pitch.id}/availability",
+        params={"target_date": target_date.isoformat()},
+    )
+    assert availability.status_code == 200, availability.text
+    statuses = {
+        datetime.fromisoformat(slot["start_time"]).hour: slot["status"]
+        for slot in availability.json()
+    }
+    assert [statuses[hour] for hour in (17, 18, 19, 20)] == [
+        "AVAILABLE", "OCCUPIED", "OCCUPIED", "AVAILABLE"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_booking_checks_exact_closing_time_and_normalizes_timestamps(
+    client: AsyncClient, db_session: AsyncSession, setup_venue_and_pitch, setup_10_players
+):
+    _, venue, pitch = setup_venue_and_pitch
+    _, tokens = setup_10_players
+    next_year = (datetime.now(timezone.utc) + timedelta(days=2)).year + 1
+    midnight = datetime(next_year, 1, 1, tzinfo=timezone.utc)
+    headers = {"Authorization": f"Bearer {tokens[0]}"}
+
+    after_closing = await client.post(
+        "/api/v1/bookings",
+        json={
+            "pitch_id": str(pitch.id),
+            "start_time": (midnight - timedelta(minutes=90)).isoformat(),
+            "end_time": (midnight - timedelta(minutes=30)).isoformat(),
+        },
+        headers=headers,
+    )
+    assert after_closing.status_code == 400, after_closing.text
+    assert "outside venue operating hours" in after_closing.json()["detail"]
+
+    venue.closing_hour = 24
+    await db_session.commit()
+    start = midnight - timedelta(hours=1)
+    ends_at_closing = await client.post(
+        "/api/v1/bookings",
+        json={
+            "pitch_id": str(pitch.id),
+            "start_time": start.replace(tzinfo=None).isoformat(),
+            "end_time": midnight.astimezone(timezone(timedelta(hours=2))).isoformat(),
+        },
+        headers=headers,
+    )
+    assert ends_at_closing.status_code == 201, ends_at_closing.text
+    assert datetime.fromisoformat(ends_at_closing.json()["start_time"]) == start
+    assert datetime.fromisoformat(ends_at_closing.json()["end_time"]) == midnight
+
+
+@pytest.mark.asyncio
+async def test_reservation_detail_access_is_limited_to_authorized_users(
+    client: AsyncClient, db_session: AsyncSession, setup_venue_and_pitch, setup_10_players
+):
+    owner, _, pitch = setup_venue_and_pitch
+    players, tokens = setup_10_players
+    players[2].role = UserRole.ADMIN
+    await db_session.commit()
+    start = (datetime.now(timezone.utc) + timedelta(days=2)).replace(
+        hour=18, minute=0, second=0, microsecond=0
+    )
+
+    booking = await client.post(
+        "/api/v1/bookings",
+        json={
+            "pitch_id": str(pitch.id),
+            "start_time": start.isoformat(),
+            "end_time": (start + timedelta(hours=1)).isoformat(),
+        },
+        headers={"Authorization": f"Bearer {tokens[0]}"},
+    )
+    assert booking.status_code == 201, booking.text
+
+    booking_url = f"/api/v1/bookings/{booking.json()['id']}"
+    cases = (
+        (tokens[0], 200),
+        (tokens[1], 403),
+        (tokens[2], 200),
+        (create_access_token(subject=str(owner.id)), 200),
+    )
+    for token, expected_status in cases:
+        response = await client.get(booking_url, headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == expected_status, response.text

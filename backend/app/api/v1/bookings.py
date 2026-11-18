@@ -11,6 +11,7 @@ from app.core.exceptions import ResourceNotFoundError
 from app.schemas.venue import PitchResponse
 from app.schemas.booking import (
     BookingCreateRequest,
+    BookingMoveRequest,
     BookingResponse,
     TimeSlotResponse,
 )
@@ -109,4 +110,48 @@ async def get_booking(
 ) -> BookingResponse:
     """Retrieve details of a single booking reservation."""
     service = BookingService(session)
-    return await service.get_booking(booking_id=booking_id)
+    return await service.get_booking(booking_id=booking_id, user=current_user)
+
+
+@router.get(
+    "/bookings/{booking_id}/availability",
+    response_model=List[TimeSlotResponse],
+    summary="Find available times for moving a reservation",
+)
+async def get_move_availability(
+    booking_id: uuid.UUID,
+    target_date: date,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> List[TimeSlotResponse]:
+    service = BookingService(session)
+    return await service.get_move_availability(booking_id, current_user.id, target_date)
+
+
+@router.patch(
+    "/bookings/{booking_id}",
+    response_model=BookingResponse,
+    summary="Move a reservation to a different time",
+)
+async def move_booking(
+    booking_id: uuid.UUID,
+    payload: BookingMoveRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> BookingResponse:
+    service = BookingService(session)
+    return await service.move_booking(booking_id, current_user.id, payload.start_time)
+
+
+@router.delete(
+    "/bookings/{booking_id}",
+    response_model=BookingResponse,
+    summary="Cancel a reservation and free its slot",
+)
+async def cancel_booking(
+    booking_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> BookingResponse:
+    service = BookingService(session)
+    return await service.cancel_booking(booking_id, current_user.id)

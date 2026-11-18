@@ -31,8 +31,8 @@ class VenueService:
         await self.session.commit()
         return await self.get_venue(venue.id)
 
-    async def get_venue(self, venue_id: uuid.UUID) -> Venue:
-        venue = await self.repo.get_venue_by_id(venue_id)
+    async def get_venue(self, venue_id: uuid.UUID, *, for_update: bool = False) -> Venue:
+        venue = await self.repo.get_venue_by_id(venue_id, for_update=for_update)
         if not venue:
             raise ResourceNotFoundError("Venue")
         return venue
@@ -43,17 +43,24 @@ class VenueService:
     async def update_venue(
         self, venue_id: uuid.UUID, user: User, payload: VenueUpdateRequest
     ) -> Venue:
-        venue = await self.get_venue(venue_id)
+        venue = await self.get_venue(venue_id, for_update=True)
         if venue.owner_id != user.id and user.role != UserRole.ADMIN:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only the venue owner or admin can update this venue.",
             )
 
-        update_data = payload.model_dump(exclude_unset=True)
+        update_data = payload.model_dump(exclude_unset=True, exclude_none=True)
+        opening_hour = update_data.get("opening_hour", venue.opening_hour)
+        closing_hour = update_data.get("closing_hour", venue.closing_hour)
+        if opening_hour >= closing_hour:
+            raise HTTPException(
+                status_code=422,
+                detail="closing_hour must be strictly greater than opening_hour",
+            )
+
         for key, value in update_data.items():
-            if value is not None:
-                setattr(venue, key, value.strip() if isinstance(value, str) else value)
+            setattr(venue, key, value.strip() if isinstance(value, str) else value)
 
         await self.session.commit()
         return await self.get_venue(venue.id)

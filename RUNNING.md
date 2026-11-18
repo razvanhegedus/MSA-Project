@@ -100,6 +100,20 @@ npm run dev
 
 ---
 
+### Serve the production frontend with nginx
+
+With the FastAPI service reachable from Docker, build and run the frontend image from the project root:
+
+```bash
+docker build -t pitchup-web ./frontend
+docker run --rm -p 5173:80 -e API_UPSTREAM=http://host.docker.internal:8000 pitchup-web
+```
+
+`API_UPSTREAM` defaults to the Docker Desktop host on port 8000. Use the backend's container name and port when both services share a Docker network. On Linux, add `--add-host=host.docker.internal:host-gateway` to reach an API running on the host. The backend must listen on an address accessible to Docker.
+
+---
+
+
 ## 4. Running Backend Tests
 
 To run the automated test suite (including concurrency and exclusion constraint verification):
